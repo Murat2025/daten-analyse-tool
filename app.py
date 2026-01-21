@@ -6,10 +6,10 @@ import requests
 from fpdf import FPDF
 import io
 
-# --- 1. SETUP & CUSTOM DESIGN (Enterprise Look) ---
-st.set_page_config(page_title="DataPro AI | Enterprise Suite", page_icon="💎", layout="wide")
+# --- 1. SETUP & ENTERPRISE DESIGN ---
+st.set_page_config(page_title="DataPro AI | Ultimate Enterprise Suite", page_icon="💎", layout="wide")
 
-# Custom CSS für professionelles Dashboard-Design
+# Custom CSS für professionelles Dashboard-Styling
 st.markdown("""
     <style>
     .stMetric { 
@@ -25,6 +25,7 @@ st.markdown("""
         background-color: #f0f2f6; 
         border-radius: 5px; 
         padding: 10px; 
+        font-weight: bold;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -40,9 +41,9 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- 2. ERWEITERTE DATEN-LOGIK (Ultra-Bereinigung) ---
+# --- 2. LOGIK-KERN (Ultra-Bereinigung) ---
 def clean_data_ultra(df):
-    # Entfernt leere Zeilen/Spalten
+    # Entfernt leere Zeilen und Spalten
     df = df.dropna(how='all').dropna(axis=1, how='all')
     for col in df.columns:
         # Bereinigung von Währungen (€, $) und Einheiten (kg, %)
@@ -51,7 +52,7 @@ def clean_data_ultra(df):
                 temp_col = df[col].astype(str).str.replace(r'[€$%kg\s]', '', regex=True).str.replace(',', '.')
                 df[col] = pd.to_numeric(temp_col)
             except: pass
-        # Datumskonvertierung
+        # Automatische Datumskonvertierung
         if 'datum' in col.lower() or 'date' in col.lower():
             try: df[col] = pd.to_datetime(df[col])
             except: pass
@@ -63,30 +64,29 @@ st.sidebar.header("📁 Daten-Zentrum")
 uploaded_files = st.sidebar.file_uploader("CSV oder Excel hochladen", type=["csv", "xlsx"], accept_multiple_files=True)
 
 if uploaded_files:
-    # Lade alle Dateien
-    dfs = {f.name: clean_data_ultra(pd.read_csv(f) if f.name.endswith('.csv') else pd.read_excel(f)) for f in uploaded_files}
+    # Lade Dateien mit entsprechender Engine
+    dfs = {f.name: clean_data_ultra(pd.read_csv(f) if f.name.endswith('.csv') else pd.read_excel(f, engine='openpyxl')) for f in uploaded_files}
     selected_file = st.sidebar.selectbox("Fokus-Datei wählen", list(dfs.keys()))
     df = dfs[selected_file]
     num_cols = df.select_dtypes(include=np.number).columns.tolist()
 
     if num_cols:
         # --- 4. KPI DASHBOARD ---
-        st.title(f"💎 Intelligence Dashboard: {selected_file}")
+        st.title(f"🚀 Enterprise Intelligence: {selected_file}")
         k1, k2, k3, k4 = st.columns(4)
         main_col = num_cols[0]
         
         k1.metric("Maximum", f"{df[main_col].max():,.2f}")
-        k2.metric("Minimum", f"{df[main_col].min():,.2f}")
-        k3.metric("Ø-Durchschnitt", f"{df[main_col].mean():,.2f}")
-        k4.metric("Datensätze", len(df))
+        k2.metric("Durchschnitt", f"{df[main_col].mean():,.2f}")
+        k3.metric("Datensätze", len(df))
+        k4.metric("Spaltenanzahl", len(df.columns))
 
-        # --- 5. INTERAKTIVE ANALYSE & AUSREISSER ---
-        st.divider()
+        # --- 5. VISUALISIERUNG & AUSREISSER ---
         st.sidebar.divider()
         range_slider = st.sidebar.slider("Datenbereich (Zeilen)", 0, len(df), (0, len(df)))
         f_df = df.iloc[range_slider[0]:range_slider[1]]
         
-        st.subheader("📊 Visualisierter Trend & Outlier-Erkennung")
+        st.subheader("📊 Trend-Analyse & Outlier-Detection")
         selected_metrics = st.multiselect("Metriken vergleichen:", num_cols, default=num_cols[:1])
         
         fig = go.Figure()
@@ -94,13 +94,13 @@ if uploaded_files:
             y_vals = f_df[m].values
             fig.add_trace(go.Scatter(x=f_df.index, y=y_vals, name=m, mode='lines+markers'))
             
-            # Ausreißer-Logik (Standardabweichung > 2) markieren
+            # Outlier Detection (2x Standardabweichung)
             mean_v, std_v = y_vals.mean(), y_vals.std()
             outlier_mask = np.abs(y_vals - mean_v) > (2 * std_v)
             if any(outlier_mask):
                 fig.add_trace(go.Scatter(
                     x=f_df.index[outlier_mask], y=y_vals[outlier_mask],
-                    mode='markers', name=f'Ausreißer {m}',
+                    mode='markers', name=f'Outlier {m}',
                     marker=dict(color='red', size=12, symbol='x')
                 ))
         
@@ -108,62 +108,73 @@ if uploaded_files:
         st.plotly_chart(fig, use_container_width=True)
 
         # --- 6. SMART QUERY ULTRA ---
+        st.divider()
         st.subheader("💬 Smart Query")
-        user_query = st.text_input("Stelle eine Frage zu deinen Daten:")
+        user_query = st.text_input("KI-Analyse (z.B. 'Was ist das Maximum?')")
         ki_out = ""
         if user_query:
             matched_col = next((c for c in num_cols if c.lower() in user_query.lower()), num_cols[0])
             ki_out = f"Analyse für '{matched_col}': Max {df[matched_col].max():,.2f}, Schnitt {df[matched_col].mean():,.2f}."
             st.info(f"🤖 {ki_out}")
 
-        # --- 7. AUTOMATION & BRIDGE (VBA, PHP, SQL, Baukasten) ---
+        # --- 7. AUTOMATION BRIDGE (VBA, PHP, SQL, Baukasten) ---
         st.divider()
-        st.header("⚙️ Automation Bridge & PHP Architect")
-        t1, t2, t3, t4 = st.tabs(["📟 VBA Makros", "🐘 PHP Connect", "🗄️ SQL Schema", "🛠️ PHP Baukasten"])
+        st.header("⚙️ Advanced Bridge Operations")
+        t_vba, t_php, t_sql, t_build = st.tabs(["📟 Formel-VBA", "🔐 Secure PHP", "🗄️ SQL Architect", "🛠️ PHP Baukasten"])
 
-        with t1:
-            st.subheader("Excel-Automatisierung")
-            vba_code = f"Sub DataPro_Automator()\n    ' Generiert für {selected_file}\n"
-            vba_code += f"    MsgBox \"Analyse fertig! Max Wert: \" & {df[main_col].max()}\n"
-            vba_code += "    Cells.SpecialCells(xlCellTypeBlanks).Delete\nEnd Sub"
+        with t_vba:
+            st.subheader("Excel Formel-Generator")
+            last_row = len(df) + 1
+            vba_code = f"""Sub AutoCalculate()
+    ' Automatische Formeln für {selected_file}
+    Dim lastRow As Long
+    lastRow = Cells(Rows.Count, 1).End(xlUp).Row
+    
+    ' Summe am Ende der Hauptspalte
+    Range("B" & lastRow + 1).Formula = "=SUM(B2:B" & lastRow & ")"
+    
+    ' Highlight über Durchschnitt ({df[main_col].mean():.2f})
+    With Range("B2:B" & lastRow).FormatConditions.Add(xlCellValue, xlGreater, "={df[main_col].mean()}")
+        .Interior.Color = RGB(255, 199, 206)
+    End With
+    MsgBox "Analyse abgeschlossen!", vbInformation
+End Sub"""
             st.code(vba_code, language="vba")
 
-        with t2:
-            st.subheader("PHP Live-Schnittstelle")
-            url = st.text_input("Ziel-URL (API):", "https://deine-seite.de/upload.php")
-            if st.button("🚀 Daten an PHP senden"):
+        with t_php:
+            st.subheader("Sicherer Datentransfer")
+            api_token = st.text_input("Security Token:", "MY_SECRET_KEY_123")
+            url = st.text_input("Ziel URL:", "https://deine-seite.de/upload.php")
+            if st.button("🚀 Sicher an PHP senden"):
                 try:
-                    res = requests.post(url, json={"data": f_df.to_json(), "file": selected_file})
+                    headers = {"Authorization": f"Bearer {api_token}"}
+                    res = requests.post(url, json={"data": f_df.to_json(), "file": selected_file}, headers=headers)
                     st.success(f"Status {res.status_code}: {res.text}")
-                except Exception as e: st.error(f"Sende-Fehler: {e}")
+                except Exception as e: st.error(f"Fehler: {e}")
 
-        with t3:
-            st.subheader("MySQL Create Table Generator")
+        with t_sql:
+            st.subheader("SQL Schema")
             sql_name = selected_file.split('.')[0].replace(" ", "_")
-            sql = f"CREATE TABLE `{sql_name}` (\n    id INT AUTO_INCREMENT PRIMARY KEY,\n"
+            sql = f"CREATE TABLE `{sql_name}` (\n  id INT AUTO_INCREMENT PRIMARY KEY,\n"
             for c in df.columns:
                 dtype = "DOUBLE" if c in num_cols else "VARCHAR(255)"
                 sql += f"    `{c}` {dtype},\n"
             st.code(sql.rstrip(',\n') + "\n);", language="sql")
 
-        with t4:
-            st.subheader("Server-Dateien Generator")
-            db_name = st.text_input("Datenbank Name", "analytics_db")
+        with t_build:
+            st.subheader("PHP Server-Dateien")
+            db_name = st.text_input("DB Name", "analytics_db")
             db_php = f"<?php\n// db_connect.php\n$pdo = new PDO('mysql:host=localhost;dbname={db_name}', 'root', '');\n?>"
             st.code(db_php, language="php")
             st.download_button("Download db_connect.php", db_php, "db_connect.php")
 
-        # --- 8. PDF REPORT ---
+        # --- 8. REPORT EXPORT ---
         st.divider()
         if st.button("📄 Profi-Report generieren"):
             pdf = FPDF()
             pdf.add_page()
             pdf.set_font("Arial", "B", 16)
             pdf.cell(200, 10, "Enterprise Analysis Report", ln=True, align='C')
-            pdf.set_font("Arial", "", 12)
-            pdf.ln(10)
-            pdf.cell(200, 10, f"Datei: {selected_file}", ln=True)
-            if ki_out: pdf.multi_cell(0, 10, f"KI-Info: {ki_out}")
             st.download_button("📥 Report herunterladen", pdf.output(dest="S").encode("latin-1"), "Report.pdf")
 
     else:
