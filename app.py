@@ -51,43 +51,39 @@ def login_system():
 
     if st.session_state["auth_level"] is None:
         st.title("🔐 Enterprise Login")
+        with st.expander("❓ Hilfe zum Login"):
+            st.info("Wählen Sie Ihre Rolle. 'Admin' hat Zugriff auf alle Bridge-Tools. 'Viewer' kann nur Daten analysieren.")
         
-        # HILFE-EXPANDER: LOGIN
-        with st.expander("❓ Hilfe zum Login-System"):
-            st.info("Wählen Sie Ihre Rolle aus. Admins haben Zugriff auf die Bridge-Konfiguration und SQL-Tools. Viewer können nur Daten einsehen und analysieren.")
-        
-        user_role = st.selectbox("Rolle wählen", ["Viewer (Nur Ansicht)", "Admin (Vollzugriff)"], 
-                                help="Wählen Sie Admin für Vollzugriff auf Datenbank-Skripte.")
-        password = st.text_input("Passwort eingeben", type="password", 
-                                help="Das Passwort wird in den App-Secrets verwaltet.")
+        user_role = st.selectbox("Rolle wählen", ["Viewer (Nur Ansicht)", "Admin (Vollzugriff)"], help="Admins können Server-Einstellungen verwalten.")
+        password = st.text_input("Passwort eingeben", type="password")
         
         if st.button("Anmelden"):
             try:
                 if user_role == "Admin (Vollzugriff)" and password == st.secrets["admin_password"]:
                     st.session_state["auth_level"] = "admin"
-                    add_log("Erfolgreicher Login als Admin")
+                    add_log("Login Admin")
                     st.rerun()
                 elif user_role == "Viewer (Nur Ansicht)" and password == st.secrets["viewer_password"]:
                     st.session_state["auth_level"] = "viewer"
-                    add_log("Erfolgreicher Login als Viewer")
+                    add_log("Login Viewer")
                     st.rerun()
                 else:
-                    st.error("Ungültiges Passwort für diese Rolle.")
+                    st.error("Ungültiges Passwort.")
             except KeyError:
-                st.error("Secrets (admin_password / viewer_password) nicht konfiguriert.")
+                st.error("Secrets nicht konfiguriert.")
         return False
     return True
 
 if not login_system():
     st.stop()
 
-# --- 3. DATEN-GENERATOR ---
+# --- 3. DATEN-GENERATOR (TESTDATEN) ---
 def generate_demo_data():
     dates = pd.date_range(start="2025-10-01", periods=110)
     base_sales = np.linspace(1000, 2500, 110)
     noise = np.random.normal(0, 50, 110)
     sales = base_sales + noise
-    sales[15], sales[45], sales[80] = 5000, 5200, 150 # Künstliche Ausreißer
+    sales[15], sales[45], sales[80] = 5000, 5200, 150 # Ausreißer
     df_demo = pd.DataFrame({
         'Datum': dates,
         'Umsatz': np.round(sales, 2),
@@ -116,19 +112,16 @@ def clean_data_ultra(df):
 st.sidebar.image("https://cdn-icons-png.flaticon.com/512/2103/2103633.png", width=80)
 st.sidebar.header(f"📁 Daten-Zentrum ({st.session_state['auth_level'].upper()})")
 
-# HILFE-EXPANDER: SIDEBAR
 with st.sidebar.expander("📂 Hilfe: Datei-Management"):
-    st.write("Laden Sie eigene CSV/XLSX Dateien hoch oder nutzen Sie den Testdaten-Button, um die KI-Funktionen sofort auszuprobieren.")
+    st.write("Eigene Dateien hochladen oder Demo-Daten generieren.")
 
-# Testdaten Button mit Tooltip
-if st.sidebar.button("🧪 Testdaten generieren", help="Erstellt 110 synthetische Datensätze inkl. Anomalien für Demo-Zwecke."):
+if st.sidebar.button("🧪 Testdaten generieren", help="Erstellt 110 Datensätze für eine Live-Demo."):
     st.session_state["demo_df"] = generate_demo_data()
-    add_log("Demo-Daten generiert")
-    st.sidebar.success("Testdaten geladen!")
+    add_log("Demo-Daten erstellt")
+    st.sidebar.success("Testdaten bereit!")
 
 uploaded_files = st.sidebar.file_uploader("Upload CSV/XLSX", type=["csv", "xlsx"], accept_multiple_files=True)
 
-# Datenquelle bestimmen
 dfs = {}
 if uploaded_files:
     for f in uploaded_files:
@@ -137,96 +130,81 @@ elif "demo_df" in st.session_state:
     dfs["Murat_Testdaten.xlsx"] = st.session_state["demo_df"]
 
 if dfs:
-    selected_file = st.sidebar.selectbox("Fokus-Datei wählen", list(dfs.keys()), help="Wählen Sie die Datei für die aktive Analyse.")
+    selected_file = st.sidebar.selectbox("Fokus-Datei wählen", list(dfs.keys()))
     df = dfs[selected_file]
     num_cols = df.select_dtypes(include=np.number).columns.tolist()
 
     if num_cols:
         # --- 6. KPI DASHBOARD ---
         st.title(f"🚀 Bridge Controller: {selected_file}")
-        
-        # HILFE-EXPANDER: DASHBOARD
-        with st.expander("📊 Hilfe: Dashboard Kennzahlen"):
-            st.write("Diese Kennzahlen geben einen schnellen Überblick über die statistische Verteilung der ersten numerischen Spalte.")
+        with st.expander("📊 Hilfe: Dashboard"):
+            st.write("Diese Werte zeigen die statistische Übersicht Ihrer Daten.")
 
         k1, k2, k3, k4 = st.columns(4)
         main_col = num_cols[0]
-        k1.metric("Maximum", f"{df[main_col].max():,.2f}", help="Höchster Einzelwert im Datensatz.")
-        k2.metric("Durchschnitt", f"{df[main_col].mean():,.2f}", help="Arithmetisches Mittel aller Werte.")
-        k3.metric("Datensätze", len(df), help="Gesamtanzahl der Zeilen in der Datei.")
-        k4.metric("Zahlenspalten", len(num_cols), help="Anzahl der verwertbaren Datenspaltentypen.")
+        k1.metric("Maximum", f"{df[main_col].max():,.2f}", help="Höchster Wert")
+        k2.metric("Durchschnitt", f"{df[main_col].mean():,.2f}")
+        k3.metric("Datensätze", len(df))
+        k4.metric("Zahlenspalten", len(num_cols))
 
         # --- 7. VISUALISIERUNG & KI ---
         st.divider()
         st.subheader("🖼️ Visualisierung & KI-Analytik")
-        
-        # HILFE-EXPANDER: VIZ & KI
-        with st.expander("🤖 Hilfe: Anomalien & Prognosen"):
-            st.markdown("""
-            **Trend-Linie:** Markiert Werte, die mehr als 2 Standardabweichungen vom Mittelwert abweichen, mit einem roten 'X'.
-            **KI-Vorhersage:** Nutzt eine Lineare Regression, um basierend auf historischen Daten die nächsten 30 Punkte zu berechnen.
-            """)
+        with st.expander("🤖 Hilfe: Prognose & Anomalien"):
+            st.markdown("- **Trend:** Rote X markieren Ausreißer.\n- **KI:** Berechnet Trend für 30 Tage.")
 
         viz_col1, viz_col2 = st.columns([1, 3])
         with viz_col1:
-            chart_type = st.radio("Analyse-Modus wählen:", ["Trend-Linie & Ausreißer", "Balken-Chart", "🤖 KI-Vorhersage (30 Tage)"], 
-                                help="Wählen Sie zwischen klassischer Analyse oder KI-gestützter Prognose.")
-            sel_metrics = st.multiselect("Metriken wählen:", num_cols, default=num_cols[:1], 
-                                        help="Wählen Sie die Datenreihen aus, die im Diagramm erscheinen sollen.")
-            f_df = df
+            chart_type = st.radio("Modus:", ["Trend", "🤖 KI-Vorhersage"], help="Wählen Sie das Analysemodell.")
+            sel_metrics = st.multiselect("Metriken:", num_cols, default=num_cols[:1])
 
         with viz_col2:
             if "Trend" in chart_type:
                 fig = go.Figure()
                 for m in sel_metrics:
-                    y_v = f_df[m].values
-                    fig.add_trace(go.Scatter(x=f_df.index, y=y_v, name=m, mode='markers+lines'))
-                    # Ausreißer-Logik (Standardabweichung)
+                    y_v = df[m].values
+                    fig.add_trace(go.Scatter(y=y_v, name=m, mode='markers+lines'))
                     m_v, s_v = y_v.mean(), y_v.std()
                     outliers = np.abs(y_v - m_v) > (2 * s_v)
                     if any(outliers):
-                        fig.add_trace(go.Scatter(x=f_df.index[outliers], y=y_v[outliers], mode='markers', name=f'Anomalie {m}', 
-                                               marker=dict(color='red', size=12, symbol='x')))
+                        fig.add_trace(go.Scatter(x=df.index[outliers], y=y_v[outliers], mode='markers', name=f'Anomalie {m}', marker=dict(color='red', size=12, symbol='x')))
                 st.plotly_chart(fig, use_container_width=True)
-            
             elif "KI" in chart_type:
-                target_m = sel_metrics[0]
-                y = f_df[target_m].values.reshape(-1, 1)
+                target = sel_metrics[0]
+                y = df[target].values.reshape(-1, 1)
                 X = np.arange(len(y)).reshape(-1, 1)
                 model = LinearRegression().fit(X, y)
-                future_X = np.arange(len(y), len(y) + 30).reshape(-1, 1)
-                forecast = model.predict(future_X)
+                pred = model.predict(np.arange(len(y), len(y)+30).reshape(-1, 1))
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(y=y.flatten(), name="Historische Daten"))
-                fig.add_trace(go.Scatter(x=np.arange(len(y), len(y)+30), y=forecast.flatten(), name="Vorhersage (30T)", line=dict(dash='dash', color='orange')))
+                fig.add_trace(go.Scatter(y=y.flatten(), name="Historie"))
+                fig.add_trace(go.Scatter(x=np.arange(len(y), len(y)+30), y=pred.flatten(), name="30T Prognose", line=dict(dash='dash', color='orange')))
                 st.plotly_chart(fig, use_container_width=True)
 
-        # --- 8. ADMIN OPERATIONS ---
+        # --- 8. ADMIN BRIDGE ---
         if st.session_state["auth_level"] == "admin":
             st.divider()
             st.header("⚙️ Advanced Bridge Operations")
-            
-            # HILFE-EXPANDER: BRIDGE
             with st.expander("📟 Hilfe: Excel & PHP Integration"):
-                st.write("Verwenden Sie diese Codes, um eine dauerhafte Verbindung zwischen Ihren Excel-Arbeitsmappen und Ihrer Web-Datenbank herzustellen.")
-            
+                st.write("Tools zur Verbindung von Excel mit MySQL via PHP.")
+
             tabs = st.tabs(["📟 VBA Bridge", "🗄️ SQL Architect", "🛠️ PHP Baukasten"])
             
             with tabs[0]:
                 st.subheader("VBA Sync-Code")
-                st.info("Kopieren Sie diesen Code in Excel (Alt+F11), um Daten per Knopfdruck an den Server zu senden.")
-                vba_url = st.text_input("VBA Ziel-URL:", "https://deine-seite.de/api/bridge.php", help="Die Adresse, unter der Ihr bridge.php Skript erreichbar ist.")
-                st.code(f"Sub PushWithFullSync()...", language="vba")
+                vba_url = st.text_input("VBA Ziel-URL:", "https://deine-seite.de/api/bridge.php")
+                st.code("Sub PushWithFullSync()... 'VBA Code hier", language="vba")
             
             with tabs[1]:
                 st.subheader("SQL Struktur")
-                st.info("Diesen Code in phpMyAdmin ausführen, um die Tabelle anzulegen.")
                 sql_name = selected_file.split('.')[0].replace(" ", "_").lower()
-                st.code(f"CREATE TABLE `{sql_name}` (...);", language="sql", help="Generiertes Schema basierend auf der aktuellen Datei.")
+                st.code(f"CREATE TABLE `{sql_name}` (...);", language="sql")
+                
+            with tabs[2]:
+                st.subheader("PHP Sync Engine")
+                st.code("<?php // PHP Sync Engine Logic mit Backup & Upsert ?>", language="php")
 
-    if st.sidebar.button("🚪 Abmelden", help="Sitzung beenden und zurück zum Login."):
+    if st.sidebar.button("🚪 Abmelden"):
         st.session_state["auth_level"] = None
         st.rerun()
-
 else:
     st.info("Willkommen Murat! Laden Sie eine Datei hoch oder nutzen Sie 'Testdaten generieren' in der Sidebar.")
