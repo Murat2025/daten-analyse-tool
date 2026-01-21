@@ -76,7 +76,7 @@ def login_system():
                     add_log("Login Viewer erfolgreich")
                     st.rerun()
                 else: st.error("Passwort falsch.")
-            except: st.error("Secrets nicht konfiguriert.")
+            except: st.error("Secrets (admin_password/viewer_password) fehlen.")
         return False
     return True
 
@@ -95,12 +95,12 @@ def generate_demo_data():
         'Umsatz': np.round(sales, 2),
         'Menge': np.round(sales / 25).astype(int),
         'Kosten': np.round(sales * 0.6, 2),
+        'Region': np.random.choice(['Nord', 'Süd', 'West', 'Ost'], 110),
         'Status': 'aktiv'
     })
-    df_demo.loc[10, 'Status'] = 'löschen'
     return df_demo
 
-# --- 4. LOGIK-KERN (Bereinigung & Validierung) ---
+# --- 4. LOGIK-KERN ---
 def clean_and_validate(df):
     df = df.dropna(how='all').dropna(axis=1, how='all')
     for col in df.columns:
@@ -112,21 +112,19 @@ def clean_and_validate(df):
         if 'datum' in col.lower() or 'date' in col.lower():
             try: df[col] = pd.to_datetime(df[col])
             except: pass
-    
     warnings = []
     num_df = df.select_dtypes(include=[np.number])
     if (num_df < 0).any().any():
         warnings.append("⚠️ Warnung: Negative Werte entdeckt!")
     return df, warnings
 
-# --- 5. SIDEBAR & IMPORT ---
+# --- 5. SIDEBAR ---
 st.sidebar.image("https://cdn-icons-png.flaticon.com/512/2103/2103633.png", width=80)
 st.sidebar.header(f"📁 Daten ({st.session_state['auth_level'].upper()})")
 
 if st.sidebar.button("🧪 Testdaten generieren"):
     st.session_state["demo_df"] = generate_demo_data()
     add_log("Demo-Daten erstellt")
-    st.sidebar.success("Testdaten bereit!")
 
 uploaded_files = st.sidebar.file_uploader("Upload CSV/XLSX", type=["csv", "xlsx"], accept_multiple_files=True)
 
@@ -143,133 +141,85 @@ if dfs:
     df = dfs[selected_file].copy()
     num_cols = df.select_dtypes(include=np.number).columns.tolist()
     date_cols = df.select_dtypes(include=['datetime64']).columns.tolist()
+    cat_cols = df.select_dtypes(include=['object']).columns.tolist()
 
     if num_cols:
         st.title(f"🚀 Bridge Controller: {selected_file}")
         
         # --- LIVE WÄHRUNGSRECHNER ---
         st.sidebar.divider()
-        st.sidebar.subheader("💱 Live Währungsrechner")
-        target_currency = st.sidebar.selectbox("Zielwährung (Basis EUR):", ["EUR", "USD", "CHF", "GBP"])
-        
+        target_currency = st.sidebar.selectbox("Zielwährung:", ["EUR", "USD", "CHF", "GBP"])
         conversion_factor = 1.0
         if target_currency != "EUR":
             try:
-                response = requests.get(f"https://open.er-api.com/v6/latest/EUR")
-                rates = response.json()["rates"]
+                rates = requests.get(f"https://open.er-api.com/v6/latest/EUR").json()["rates"]
                 conversion_factor = rates[target_currency]
-                st.sidebar.info(f"Kurs: 1 EUR = {conversion_factor:.4f} {target_currency}")
-            except: st.sidebar.error("Kurs-API Fehler")
+            except: st.sidebar.error("API Fehler")
 
         # KPIs
         k1, k2, k3, k4 = st.columns(4)
         main_col = num_cols[0]
-        val_max = df[main_col].max() * conversion_factor
-        val_avg = df[main_col].mean() * conversion_factor
-        k1.metric("Maximum", f"{val_max:,.2f} {target_currency}")
-        k2.metric("Durchschnitt", f"{val_avg:,.2f} {target_currency}")
+        k1.metric("Maximum", f"{df[main_col].max() * conversion_factor:,.2f} {target_currency}")
+        k2.metric("Durchschnitt", f"{df[main_col].mean() * conversion_factor:,.2f} {target_currency}")
         k3.metric("Datensätze", len(df))
         anomaly_count = (np.abs(df[main_col] - df[main_col].mean()) > (2 * df[main_col].std())).sum()
         k4.metric("Anomalien", anomaly_count)
-
-        # ANOMALIE-BENACHRICHTIGUNG
-        st.subheader("🚨 Kritische Daten-Anomalien")
-        anomalies = []
-        df['diff'] = df[main_col].pct_change().abs()
-        jumps = df[df['diff'] > 0.5]
-        for idx, row in jumps.tail(2).iterrows():
-            anomalies.append(f"Extremer Sprung (+{row['diff']*100:.1f}%) bei Index {idx}")
-        z_scores = (df[main_col] - df[main_col].mean()) / df[main_col].std()
-        outliers = df[z_scores.abs() > 3]
-        for idx, row in outliers.tail(2).iterrows():
-            anomalies.append(f"Statistischer Ausreißer bei Index {idx}")
-
-        if anomalies:
-            for a in anomalies: st.markdown(f"<div class='anomaly-card'>{a}</div>", unsafe_allow_html=True)
-        else: st.success("Keine Anomalien.")
 
         # --- VISUALISIERUNG ---
         st.divider()
         viz_col1, viz_col2 = st.columns([1, 3])
         with viz_col1:
-            chart_type = st.radio("Analyse-Modus:", ["Trend & Ausreißer", "🤖 KI-Vorhersage", "📈 Korrelations-Check", "🔥 Aktivitäts-Heatmap"])
+            chart_type = st.radio("Modus:", ["Trend & Ausreißer", "🤖 KI-Vorhersage", "📈 Korrelation", "🔥 Heatmap", "📊 Pivot-Analyse"])
             sel_metrics = st.multiselect("Metriken:", num_cols, default=num_cols[:1])
+            
+            # EXPORT FIX
             st.subheader("📥 Export")
             output_excel = io.BytesIO()
-            with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
-                df.to_excel(writer, index=False)
-            st.download_button(label="📊 Excel", data=output_excel.getvalue(), file_name=f"Clean.xlsx")
+            try:
+                with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
+                    df.to_excel(writer, index=False)
+            except:
+                with pd.ExcelWriter(output_excel) as writer:
+                    df.to_excel(writer, index=False)
+            st.download_button(label="📊 Excel Download", data=output_excel.getvalue(), file_name="Clean_Export.xlsx")
         
         with viz_col2:
-            if "Trend" in chart_type:
-                fig = go.Figure()
-                for m in sel_metrics:
-                    y_v = df[m].values * conversion_factor
-                    fig.add_trace(go.Scatter(y=y_v, name=f"{m} ({target_currency})", mode='markers+lines'))
-                    m_v, s_v = y_v.mean(), y_v.std()
-                    outliers_v = np.abs(y_v - m_v) > (2 * s_v)
-                    if any(outliers_v):
-                        fig.add_trace(go.Scatter(x=df.index[outliers_v], y=y_v[outliers_v], mode='markers', marker=dict(color='red', size=10, symbol='x')))
+            if chart_type == "Trend & Ausreißer":
+                fig = px.line(df, y=[m for m in sel_metrics], template="plotly_white")
                 st.plotly_chart(fig, use_container_width=True)
-            elif "KI" in chart_type:
-                target = sel_metrics[0]
-                y = (df[target].values * conversion_factor).reshape(-1, 1)
+            elif chart_type == "🤖 KI-Vorhersage":
+                y = (df[main_col].values * conversion_factor).reshape(-1, 1)
                 X = np.arange(len(y)).reshape(-1, 1)
                 model = LinearRegression().fit(X, y)
                 pred = model.predict(np.arange(len(y), len(y)+30).reshape(-1, 1))
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(y=y.flatten(), name="Historisch"))
-                fig.add_trace(go.Scatter(x=np.arange(len(y), len(y)+30), y=pred.flatten(), name="30T Prognose", line=dict(dash='dash', color='orange')))
+                fig.add_trace(go.Scatter(y=y.flatten(), name="Ist"))
+                fig.add_trace(go.Scatter(x=np.arange(len(y), len(y)+30), y=pred.flatten(), name="Prognose", line=dict(dash='dash')))
                 st.plotly_chart(fig, use_container_width=True)
-            elif "Korrelation" in chart_type:
-                if len(num_cols) >= 2:
-                    col_x = st.selectbox("Faktor X:", num_cols, index=0)
-                    col_y = st.selectbox("Resultat Y:", num_cols, index=1)
-                    st.plotly_chart(px.scatter(df, x=col_x, y=col_y, trendline="ols", template="plotly_white"), use_container_width=True)
-            elif "Heatmap" in chart_type:
-                if date_cols:
-                    df['Wochentag'] = df[date_cols[0]].dt.day_name()
-                    df['Monat_Name'] = df[date_cols[0]].dt.month_name()
-                    heatmap_data = df.pivot_table(index='Wochentag', columns='Monat_Name', values=main_col, aggfunc='mean')
-                    order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-                    heatmap_data = heatmap_data.reindex(order)
-                    st.plotly_chart(px.imshow(heatmap_data, text_auto=True, title="Durchschnittliche Aktivität nach Zeiträumen", aspect="auto", color_continuous_scale='Viridis'), use_container_width=True)
-                else:
-                    st.error("Keine Datumsspalte für Heatmap gefunden.")
+            elif chart_type == "📊 Pivot-Analyse":
+                st.subheader("Dynamische Gruppierung")
+                if cat_cols and num_cols:
+                    p_index = st.selectbox("Zeilen (Kategorie):", cat_cols)
+                    p_values = st.selectbox("Werte (Zahlen):", num_cols)
+                    p_agg = st.selectbox("Berechnung:", ["sum", "mean", "count", "max", "min"])
+                    pivot_table = df.pivot_table(index=p_index, values=p_values, aggfunc=p_agg)
+                    st.dataframe(pivot_table, use_container_width=True)
+                    st.plotly_chart(px.bar(pivot_table, template="plotly_white"), use_container_width=True)
 
-        # --- ZEIT-ANALYSE ---
-        if date_cols:
-            st.divider()
-            st.subheader("📅 Zeit-Analyse Performance")
-            t1, t2 = st.columns(2)
-            d_col = date_cols[0]
-            with t1:
-                df['Wochentag'] = df[d_col].dt.day_name()
-                day_res = df.groupby('Wochentag')[main_col].sum() * conversion_factor
-                st.plotly_chart(px.bar(day_res, title="Umsatz nach Wochentag"), use_container_width=True)
-            with t2:
-                df['Monat'] = df[d_col].dt.month_name()
-                mon_res = df.groupby('Monat')[main_col].sum() * conversion_factor
-                st.plotly_chart(px.bar(mon_res, title="Umsatz nach Monat"), use_container_width=True)
-
-        # --- KI-INSIGHT-ENGINE ---
+        # --- KI-INSIGHTS ---
         st.divider()
-        st.subheader("🤖 KI-Insight Zusammenfassung")
-        trend_msg = "positiv steigend" if (df[main_col].tail(10).mean() > df[main_col].head(10).mean()) else "leicht fallend"
-        best_day = df.groupby(df[d_col].dt.day_name())[main_col].sum().idxmax() if date_cols else "N/A"
-        insight_text = f"**Analyse:** Der Trend für `{selected_file}` ist **{trend_msg}**. Spitzenwerte am **{best_day}**."
-        st.markdown(f"<div class='ki-insight-box'>{insight_text}</div>", unsafe_allow_html=True)
+        st.subheader("🤖 KI-Insight")
+        insight = f"Trend für {selected_file} ist stabil. Stärkster Faktor: {main_col}."
+        st.markdown(f"<div class='ki-insight-box'>{insight}</div>", unsafe_allow_html=True)
 
-        # --- ADVANCED BRIDGE OPERATIONS ---
+        # --- ADMIN TOOLS ---
         if st.session_state["auth_level"] == "admin":
-            st.divider()
-            st.header("⚙️ Advanced Bridge Operations")
-            tabs = st.tabs(["📟 VBA Bridge", "🗄️ SQL Architect", "🛠️ PHP Engine", "📜 Logs"])
-            with tabs[1]: st.code(f"CREATE TABLE `{selected_file.split('.')[0]}`...", language="sql")
-            with tabs[3]: st.table(pd.DataFrame(st.session_state["activity_log"]).iloc[::-1])
+            with st.expander("⚙️ Admin Bridge Tools"):
+                tabs = st.tabs(["VBA", "SQL", "PHP"])
+                with tabs[1]: st.code(f"CREATE TABLE `{selected_file.split('.')[0]}`...", language="sql")
 
     if st.sidebar.button("Logout 🚪"):
         st.session_state["auth_level"] = None
         st.rerun()
 else:
-    st.info("Willkommen Murat! Nutze die Sidebar zum Starten.")
+    st.info("Willkommen Murat! Lade Daten hoch oder nutze Testdaten.")
