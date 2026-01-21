@@ -2,10 +2,12 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import requests # Für die PHP-Live-Schnittstelle
 from fpdf import FPDF
+import io
 
-# --- 1. SETUP & LOGIN ---
-st.set_page_config(page_title="DataPro AI Ultimate", page_icon="🚀", layout="wide")
+# --- 1. SETUP & LOGIN (Sicherheits-Layer) ---
+st.set_page_config(page_title="DataPro AI Ultimate Bridge", page_icon="🚀", layout="wide")
 
 def check_password():
     if "password_correct" not in st.session_state:
@@ -18,11 +20,11 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- 2. DATEN-BEREINIGUNG FUNKTION ---
+# --- 2. AUTO-DATA-CLEANING ---
 def clean_data(df):
-    # Entfernt komplett leere Zeilen und Spalten
+    # Entfernt leere Zeilen/Spalten
     df = df.dropna(how='all').dropna(axis=1, how='all')
-    # Versucht, Datumsspalten automatisch zu konvertieren
+    # Datumskonvertierung
     for col in df.columns:
         if 'datum' in col.lower() or 'date' in col.lower():
             try:
@@ -31,95 +33,108 @@ def clean_data(df):
                 pass
     return df
 
-# --- 3. HEADER & MULTI-FILE-LOGIK ---
-st.title("🚀 DataPro AI: Ultimate Universal Suite")
+# --- 3. MULTI-FORMAT-SUPPORT (CSV & XLSX) ---
+st.title("🚀 DataPro AI: Ultimate Universal Bridge")
 st.sidebar.header("📁 Daten-Zentrum")
-uploaded_files = st.sidebar.file_uploader("CSV-Dateien hochladen", type=["csv"], accept_multiple_files=True)
+uploaded_files = st.sidebar.file_uploader("CSV oder Excel hochladen", type=["csv", "xlsx"], accept_multiple_files=True)
 
 if uploaded_files:
-    dfs = {f.name: clean_data(pd.read_csv(f)) for f in uploaded_files}
+    dfs = {}
+    for f in uploaded_files:
+        if f.name.endswith('.csv'):
+            dfs[f.name] = clean_data(pd.read_csv(f))
+        else:
+            dfs[f.name] = clean_data(pd.read_excel(f))
+
     selected_file_name = st.sidebar.selectbox("Aktive Datei wählen", list(dfs.keys()))
     df = dfs[selected_file_name]
-    
-    # Automatische Erkennung aller Zahlenspalten
     num_cols = df.select_dtypes(include=np.number).columns.tolist()
 
     if num_cols:
-        # --- 4. DASHBOARD & FILTER ---
+        # --- 4. ZEIT-SLIDER-FILTER ---
         st.sidebar.divider()
-        st.sidebar.subheader("📅 Zeit-Filter")
-        start_row, end_row = st.sidebar.slider("Datenbereich wählen", 0, len(df), (0, len(df)))
+        start_row, end_row = st.sidebar.slider("Datenbereich (Zeilen)", 0, len(df), (0, len(df)))
         filtered_df = df.iloc[start_row:end_row]
 
-        # Schnell-Metriken oben
+        # --- 5. MULTI-KURVEN-VISUALISIERUNG ---
         st.subheader(f"📊 Analyse: {selected_file_name}")
-        m_cols = st.columns(min(len(num_cols), 4))
-        for i, col in enumerate(num_cols[:4]):
-            with m_cols[i]:
-                current_val = filtered_df[col].iloc[-1] if not filtered_df[col].empty else 0
-                st.metric(col, f"{current_val:,.2f}")
-
-        # Multi-Kurven Chart
         selected_metrics = st.multiselect("Metriken vergleichen:", num_cols, default=num_cols[:1])
+        
         fig = go.Figure()
         for m in selected_metrics:
             fig.add_trace(go.Scatter(x=filtered_df.index, y=filtered_df[m], name=m, mode='lines+markers'))
         fig.update_layout(hovermode="x unified", template="plotly_white")
         st.plotly_chart(fig, use_container_width=True)
 
-        # --- 5. SMART QUERY ULTRA (Mit Ausreißer-Erkennung) ---
+        # --- 6. SMART QUERY ULTRA (KI-Suche & Outlier) ---
         st.divider()
-        st.subheader("💬 Smart Query Ultra (KI)")
-        user_query = st.text_input("Stelle eine Frage zu deinen Daten (z.B. 'Wann war das Maximum von " + num_cols[0] + "?')")
-        
+        st.subheader("💬 Smart Query Ultra")
+        user_query = st.text_input("Frag die KI (z.B. 'Max von " + num_cols[0] + "' oder 'Ausreißer')")
         ki_out = ""
         if user_query:
             q = user_query.lower()
-            # Erkennt automatisch, welche Spalte gemeint ist
             matched_col = next((c for c in num_cols if c.lower() in q), num_cols[0])
             y_data = filtered_df[matched_col].values
             
-            st.markdown("---")
-            if "ausreißer" in q or "fehler" in q:
+            if "hoch" in q or "max" in q:
+                ki_out = f"Maximum in '{matched_col}': {y_data.max():,.2f}."
+                st.success(f"🤖 {ki_out}")
+            elif "ausreißer" in q:
                 mean, std = y_data.mean(), y_data.std()
                 outliers = filtered_df[np.abs(filtered_df[matched_col] - mean) > (2 * std)]
-                ki_out = f"Ausreißer-Check für '{matched_col}': {len(outliers)} verdächtige Werte gefunden."
+                ki_out = f"Gefundene Ausreißer in '{matched_col}': {len(outliers)}."
                 st.warning(f"🤖 {ki_out}")
-                if not outliers.empty:
-                    st.write(outliers)
-            elif "hoch" in q or "max" in q:
-                idx_max = filtered_df[matched_col].idxmax()
-                ki_out = f"Maximum in '{matched_col}': {y_data.max():,.2f} in Zeile {idx_max}."
-                st.success(f"🤖 {ki_out}")
-            elif "vergleich" in q or "differenz" in q:
-                diff = y_data[-1] - y_data[0]
-                ki_out = f"Vergleich '{matched_col}': Start {y_data[0]:,.2f} -> Ende {y_data[-1]:,.2f} (Diff: {diff:,.2f})."
-                st.info(f"🤖 {ki_out}")
             else:
                 ki_out = f"Durchschnitt von '{matched_col}': {y_data.mean():,.2f}."
-                st.write(f"🤖 {ki_out}")
+                st.info(f"🤖 {ki_out}")
 
-        # --- 6. EXPORT ---
+        # --- 7. EXCEL-PHP-BRIDGE (VBA & PHP) ---
+        st.divider()
+        st.header("🔌 Excel-PHP-Bridge & Automation")
+        tab_vba, tab_php = st.tabs(["📟 VBA-Makro-Generator", "🐘 PHP-Data-Bridge"])
+
+        with tab_vba:
+            st.subheader("Automatisches Excel-Makro")
+            vba_task = st.selectbox("Makro-Ziel:", ["Reinigung", "Highlight Outliers"])
+            vba_code = f"Sub DataPro_Automator()\n    ' Generiert für {selected_file_name}\n"
+            if vba_task == "Reinigung":
+                vba_code += "    Cells.SpecialCells(xlCellTypeBlanks).Delete\n    Columns.AutoFit\n"
+            else:
+                vba_code += f"    ' Markiere Zellen > {y_data.mean():.0f}\n    For Each c In UsedRange\n        If c.Value > {y_data.mean():.0f} Then c.Interior.Color = vbRed\n    Next c\n"
+            vba_code += "End Sub"
+            st.code(vba_code, language="vba")
+
+        with tab_php:
+            st.subheader("PHP Live-Schnittstelle")
+            target_url = st.text_input("Ziel-URL deines PHP-Skripts:", "https://deine-seite.de/api/upload.php")
+            
+            if st.button("🚀 Daten jetzt an PHP-Server senden"):
+                try:
+                    json_payload = filtered_df.to_json(orient="records")
+                    response = requests.post(target_url, json={"data": json_payload, "file": selected_file_name})
+                    st.success(f"Server-Antwort: {response.text}")
+                except Exception as e:
+                    st.error(f"Fehler: {e}")
+            
+            st.divider()
+            st.write("Vorschau PHP-Sicherheits-Skript (PDO):")
+            php_pdo = "<?php\n$pdo = new PDO('mysql:host=localhost;dbname=db', 'user', 'pass');\n// Logik..."
+            st.code(php_pdo, language="php")
+
+        # --- 8. PROFI-PDF-EXPORT ---
         st.divider()
         if st.button("📄 Profi-Report generieren"):
             pdf = FPDF()
             pdf.add_page()
             pdf.set_font("Arial", "B", 16)
-            pdf.cell(200, 10, "DataPro Ultimate Analysis Report", ln=True, align='C')
+            pdf.cell(200, 10, "Business Intelligence Report", ln=True, align='C')
             pdf.set_font("Arial", "", 12)
             pdf.ln(10)
             pdf.cell(200, 10, f"Datei: {selected_file_name}", ln=True)
-            pdf.cell(200, 10, f"Bereich: Zeile {start_row} bis {end_row}", ln=True)
-            if ki_out:
-                pdf.ln(5)
-                pdf.set_font("Arial", "B", 12)
-                pdf.cell(200, 10, "KI-Analyse-Ergebnis:", ln=True)
-                pdf.set_font("Arial", "", 12)
-                pdf.multi_cell(0, 10, ki_out)
-            
-            st.download_button("📥 PDF herunterladen", pdf.output(dest="S").encode("latin-1"), "DataPro_Report.pdf")
+            if ki_out: pdf.multi_cell(0, 10, f"KI-Ergebnis: {ki_out}")
+            st.download_button("📥 PDF herunterladen", pdf.output(dest="S").encode("latin-1"), "Report.pdf")
 
     else:
-        st.error("Diese CSV enthält keine Zahlen zum Analysieren.")
+        st.error("Keine numerischen Daten gefunden.")
 else:
-    st.info("Bereit! Lade eine oder mehrere CSV-Dateien hoch. Ich bereinige die Daten automatisch und starte die KI.")
+    st.info("Willkommen! Lade eine CSV oder Excel hoch, um die Bridge-Suite zu nutzen.")
