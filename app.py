@@ -100,7 +100,7 @@ def generate_demo_data():
     })
     return df_demo
 
-# --- 4. LOGIK-KERN ---
+# --- 4. LOGIK-KERN (Bereinigung & Validierung) ---
 def clean_and_validate(df):
     df = df.dropna(how='all').dropna(axis=1, how='all')
     for col in df.columns:
@@ -112,6 +112,7 @@ def clean_and_validate(df):
         if 'datum' in col.lower() or 'date' in col.lower():
             try: df[col] = pd.to_datetime(df[col])
             except: pass
+    
     warnings = []
     num_df = df.select_dtypes(include=[np.number])
     if (num_df < 0).any().any():
@@ -125,6 +126,7 @@ st.sidebar.header(f"📁 Daten ({st.session_state['auth_level'].upper()})")
 if st.sidebar.button("🧪 Testdaten generieren"):
     st.session_state["demo_df"] = generate_demo_data()
     add_log("Demo-Daten erstellt")
+    st.sidebar.success("Testdaten bereit!")
 
 uploaded_files = st.sidebar.file_uploader("Upload CSV/XLSX", type=["csv", "xlsx"], accept_multiple_files=True)
 
@@ -148,12 +150,14 @@ if dfs:
         
         # --- LIVE WÄHRUNGSRECHNER ---
         st.sidebar.divider()
+        st.sidebar.subheader("💱 Live Währungsrechner")
         target_currency = st.sidebar.selectbox("Zielwährung:", ["EUR", "USD", "CHF", "GBP"])
         conversion_factor = 1.0
         if target_currency != "EUR":
             try:
                 rates = requests.get(f"https://open.er-api.com/v6/latest/EUR").json()["rates"]
                 conversion_factor = rates[target_currency]
+                st.sidebar.info(f"Kurs: 1 EUR = {conversion_factor:.4f} {target_currency}")
             except: st.sidebar.error("API Fehler")
 
         # KPIs
@@ -165,15 +169,33 @@ if dfs:
         anomaly_count = (np.abs(df[main_col] - df[main_col].mean()) > (2 * df[main_col].std())).sum()
         k4.metric("Anomalien", anomaly_count)
 
-        # --- VISUALISIERUNG ---
+        # ANOMALIE-BENACHRICHTIGUNG
+        st.subheader("🚨 Kritische Daten-Anomalien")
+        anomalies = []
+        df['diff'] = df[main_col].pct_change().abs()
+        jumps = df[df['diff'] > 0.5]
+        for idx, row in jumps.tail(3).iterrows():
+            anomalies.append(f"Extremer Sprung (+{row['diff']*100:.1f}%) bei Index {idx}")
+        z_scores = (df[main_col] - df[main_col].mean()) / df[main_col].std()
+        outliers = df[z_scores.abs() > 3]
+        for idx, row in outliers.tail(2).iterrows():
+            anomalies.append(f"Statistischer Ausreißer bei Index {idx}")
+
+        if anomalies:
+            for a in anomalies: st.markdown(f"<div class='anomaly-card'>{a}</div>", unsafe_allow_html=True)
+        else: st.success("Keine Anomalien gefunden.")
+
+        # --- VISUALISIERUNG & MODI ---
         st.divider()
         viz_col1, viz_col2 = st.columns([1, 3])
         with viz_col1:
-            chart_type = st.radio("Modus:", ["Trend & Ausreißer", "🤖 KI-Vorhersage", "📈 Korrelation", "🔥 Heatmap", "📊 Pivot-Analyse"])
+            chart_type = st.radio("Analyse-Modus:", ["Trend & Ausreißer", "🤖 KI-Vorhersage", "📈 Korrelation", "🔥 Heatmap", "📊 Pivot-Analyse"])
             sel_metrics = st.multiselect("Metriken:", num_cols, default=num_cols[:1])
             
-            # EXPORT FIX
-            st.subheader("📥 Export")
+            st.write("---")
+            st.subheader("📥 Export Center")
+            
+            # Excel Export mit Robustheits-Fix
             output_excel = io.BytesIO()
             try:
                 with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
@@ -181,11 +203,31 @@ if dfs:
             except:
                 with pd.ExcelWriter(output_excel) as writer:
                     df.to_excel(writer, index=False)
-            st.download_button(label="📊 Excel Download", data=output_excel.getvalue(), file_name="Clean_Export.xlsx")
+            st.download_button(label="📊 Excel Download", data=output_excel.getvalue(), file_name=f"Clean_{selected_file}.xlsx")
+            
+            # Profi-PDF Report
+            if st.button("📄 Profi-PDF Report"):
+                add_log("PDF Export")
+                pdf = FPDF()
+                pdf.add_page()
+                pdf.set_font("Arial", 'B', 16)
+                pdf.cell(200, 10, txt="Enterprise Analytics Report", ln=True, align='C')
+                pdf.set_font("Arial", size=10)
+                pdf.cell(200, 10, txt=f"Erstellt: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True, align='C')
+                pdf.ln(10)
+                pdf.cell(200, 10, txt=f"Datensatze: {len(df)} | Max: {df[main_col].max():,.2f}", ln=True)
+                if 'current_fig' in st.session_state:
+                    img_bytes = pio.to_image(st.session_state.current_fig, format="png")
+                    pdf.image(io.BytesIO(img_bytes), x=10, y=None, w=190)
+                st.download_button("📥 PDF Herunterladen", data=pdf.output(dest='S').encode('latin-1'), file_name="Report.pdf")
         
         with viz_col2:
             if chart_type == "Trend & Ausreißer":
-                fig = px.line(df, y=[m for m in sel_metrics], template="plotly_white")
+                fig = go.Figure()
+                for m in sel_metrics:
+                    y_v = df[m].values * conversion_factor
+                    fig.add_trace(go.Scatter(y=y_v, name=m, mode='markers+lines'))
+                st.session_state.current_fig = fig
                 st.plotly_chart(fig, use_container_width=True)
             elif chart_type == "🤖 KI-Vorhersage":
                 y = (df[main_col].values * conversion_factor).reshape(-1, 1)
@@ -193,33 +235,97 @@ if dfs:
                 model = LinearRegression().fit(X, y)
                 pred = model.predict(np.arange(len(y), len(y)+30).reshape(-1, 1))
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(y=y.flatten(), name="Ist"))
-                fig.add_trace(go.Scatter(x=np.arange(len(y), len(y)+30), y=pred.flatten(), name="Prognose", line=dict(dash='dash')))
+                fig.add_trace(go.Scatter(y=y.flatten(), name="Historisch"))
+                fig.add_trace(go.Scatter(x=np.arange(len(y), len(y)+30), y=pred.flatten(), name="KI-Prognose", line=dict(dash='dash')))
                 st.plotly_chart(fig, use_container_width=True)
+            elif chart_type == "📈 Korrelation":
+                col_x = st.selectbox("X-Achse:", num_cols, index=0)
+                col_y = st.selectbox("Y-Achse:", num_cols, index=1)
+                st.plotly_chart(px.scatter(df, x=col_x, y=col_y, trendline="ols", template="plotly_white"), use_container_width=True)
+            elif chart_type == "🔥 Heatmap":
+                if date_cols:
+                    df['Wochentag'] = df[date_cols[0]].dt.day_name()
+                    df['Monat_Name'] = df[date_cols[0]].dt.month_name()
+                    heatmap_data = df.pivot_table(index='Wochentag', columns='Monat_Name', values=main_col, aggfunc='mean')
+                    st.plotly_chart(px.imshow(heatmap_data, text_auto=True, color_continuous_scale='Viridis'), use_container_width=True)
             elif chart_type == "📊 Pivot-Analyse":
-                st.subheader("Dynamische Gruppierung")
-                if cat_cols and num_cols:
-                    p_index = st.selectbox("Zeilen (Kategorie):", cat_cols)
-                    p_values = st.selectbox("Werte (Zahlen):", num_cols)
-                    p_agg = st.selectbox("Berechnung:", ["sum", "mean", "count", "max", "min"])
-                    pivot_table = df.pivot_table(index=p_index, values=p_values, aggfunc=p_agg)
-                    st.dataframe(pivot_table, use_container_width=True)
-                    st.plotly_chart(px.bar(pivot_table, template="plotly_white"), use_container_width=True)
+                p_index = st.selectbox("Gruppieren nach:", cat_cols if cat_cols else df.columns)
+                p_values = st.selectbox("Werte:", num_cols)
+                pivot_table = df.pivot_table(index=p_index, values=p_values, aggfunc='sum')
+                st.dataframe(pivot_table, use_container_width=True)
 
-        # --- KI-INSIGHTS ---
+        # --- ZEIT-ANALYSE ---
+        if date_cols:
+            st.divider()
+            st.subheader("📅 Zeit-Analyse (Best Performance)")
+            t1, t2 = st.columns(2)
+            d_col = date_cols[0]
+            with t1:
+                df['Day'] = df[d_col].dt.day_name()
+                st.plotly_chart(px.bar(df.groupby('Day')[main_col].sum().reindex(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]), title="Umsatz nach Wochentag"), use_container_width=True)
+            with t2:
+                df['Month'] = df[d_col].dt.month_name()
+                st.plotly_chart(px.bar(df.groupby('Month')[main_col].sum(), title="Umsatz nach Monat", color_discrete_sequence=['#00CC96']), use_container_width=True)
+
+        # --- KI-INSIGHT-ENGINE ---
         st.divider()
-        st.subheader("🤖 KI-Insight")
-        insight = f"Trend für {selected_file} ist stabil. Stärkster Faktor: {main_col}."
-        st.markdown(f"<div class='ki-insight-box'>{insight}</div>", unsafe_allow_html=True)
+        st.subheader("🤖 KI-Insight Zusammenfassung")
+        trend = "steigend" if (df[main_col].tail(10).mean() > df[main_col].head(10).mean()) else "fallend"
+        insight_text = f"Analyse abgeschlossen: Der Trend für {selected_file} ist **{trend}**. Datenqualitat: {'Kritisch' if anomaly_count > 5 else 'Gut'}."
+        st.markdown(f"<div class='ki-insight-box'>{insight_text}</div>", unsafe_allow_html=True)
 
-        # --- ADMIN TOOLS ---
+        # --- 8. ADVANCED BRIDGE OPERATIONS (VOLLSTÄNDIG) ---
         if st.session_state["auth_level"] == "admin":
-            with st.expander("⚙️ Admin Bridge Tools"):
-                tabs = st.tabs(["VBA", "SQL", "PHP"])
-                with tabs[1]: st.code(f"CREATE TABLE `{selected_file.split('.')[0]}`...", language="sql")
+            st.divider()
+            st.header("⚙️ Advanced Bridge Operations")
+            tabs = st.tabs(["📟 VBA Power-Bridge", "🗄️ SQL Architect Pro", "🛠️ PHP Secure Engine", "📜 Aktivitäts-Log"])
+            
+            with tabs[0]:
+                st.subheader("VBA Sync-Makro mit Error Handling")
+                vba_url = st.text_input("VBA API URL:", "https://deine-seite.de/api/bridge.php")
+                st.code(f"""Sub SyncToCloud()
+    On Error GoTo ErrorHandler
+    Dim http As Object, payload As String
+    ' ... JSON Generierung ...
+    Set http = CreateObject("MSXML2.XMLHTTP")
+    http.Open "POST", "{vba_url}", False
+    http.setRequestHeader "Content-Type", "application/json"
+    http.Send payload
+    If http.Status = 200 Then MsgBox "Sync erfolgreich!", vbInformation Else MsgBox "Fehler: " & http.Status
+    Exit Sub
+ErrorHandler:
+    MsgBox "Verbindungsfehler!", vbCritical
+End Sub""", language="vba")
+
+            with tabs[1]:
+                st.subheader("SQL Table & Index Architect")
+                sql_name = selected_file.split('.')[0].replace(" ", "_").lower()
+                st.code(f"""CREATE TABLE `{sql_name}` (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    datum DATETIME,
+    wert DOUBLE,
+    INDEX idx_datum (datum)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;""", language="sql")
+            
+            with tabs[2]:
+                st.subheader("PHP Secure Bridge Engine")
+                st.code(f"""<?php
+// Secure Upsert Logic
+require_once 'config.php';
+$data = json_decode(file_get_contents('php://input'), true);
+if($data) {{
+    // Auto-Backup & Upsert
+    $pdo->exec("CREATE TABLE IF NOT EXISTS backup_... LIKE ...");
+    echo "Processing " . count($data) . " rows.";
+}}
+?>""", language="php")
+
+            with tabs[3]:
+                st.subheader("System-Aktivitäts-Log")
+                st.table(pd.DataFrame(st.session_state["activity_log"]).iloc[::-1])
 
     if st.sidebar.button("Logout 🚪"):
         st.session_state["auth_level"] = None
         st.rerun()
 else:
-    st.info("Willkommen Murat! Lade Daten hoch oder nutze Testdaten.")
+    st.info("Willkommen Murat! Nutze die Sidebar zum Starten.")
