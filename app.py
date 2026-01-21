@@ -52,13 +52,14 @@ def login_system():
     if st.session_state["auth_level"] is None:
         st.title("🔐 Enterprise Login")
         
-        with st.expander("❓ Hilfe zum Login"):
-            st.info("Wählen Sie Ihre zugewiesene Rolle. 'Admin' hat Zugriff auf Datenbank-Tools, während 'Viewer' nur Analysen einsehen kann.")
+        # HILFE-EXPANDER: LOGIN
+        with st.expander("❓ Hilfe zum Login-System"):
+            st.info("Wählen Sie Ihre Rolle aus. Admins haben Zugriff auf die Bridge-Konfiguration und SQL-Tools. Viewer können nur Daten einsehen und analysieren.")
         
         user_role = st.selectbox("Rolle wählen", ["Viewer (Nur Ansicht)", "Admin (Vollzugriff)"], 
-                                help="Wählen Sie 'Admin' für vollen Zugriff auf Server-Operationen.")
+                                help="Wählen Sie Admin für Vollzugriff auf Datenbank-Skripte.")
         password = st.text_input("Passwort eingeben", type="password", 
-                                help="Geben Sie das Passwort aus Ihren Streamlit Secrets ein.")
+                                help="Das Passwort wird in den App-Secrets verwaltet.")
         
         if st.button("Anmelden"):
             try:
@@ -80,12 +81,24 @@ def login_system():
 if not login_system():
     st.stop()
 
-if st.sidebar.button("Logout 🚪", help="Beendet die aktuelle Sitzung sicher."):
-    add_log("Abgemeldet")
-    st.session_state["auth_level"] = None
-    st.rerun()
+# --- 3. DATEN-GENERATOR ---
+def generate_demo_data():
+    dates = pd.date_range(start="2025-10-01", periods=110)
+    base_sales = np.linspace(1000, 2500, 110)
+    noise = np.random.normal(0, 50, 110)
+    sales = base_sales + noise
+    sales[15], sales[45], sales[80] = 5000, 5200, 150 # Künstliche Ausreißer
+    df_demo = pd.DataFrame({
+        'Datum': dates,
+        'Umsatz': np.round(sales, 2),
+        'Menge': np.round(sales / 25).astype(int),
+        'Kosten': np.round(sales * 0.6, 2),
+        'Status': 'aktiv'
+    })
+    df_demo.loc[10, 'Status'] = 'löschen'
+    return df_demo
 
-# --- 3. LOGIK-KERN (Bereinigung) ---
+# --- 4. LOGIK-KERN (Bereinigung) ---
 def clean_data_ultra(df):
     df = df.dropna(how='all').dropna(axis=1, how='all')
     for col in df.columns:
@@ -99,84 +112,84 @@ def clean_data_ultra(df):
             except: pass
     return df
 
-# --- 4. DATEI-IMPORT ---
+# --- 5. SIDEBAR ---
 st.sidebar.image("https://cdn-icons-png.flaticon.com/512/2103/2103633.png", width=80)
 st.sidebar.header(f"📁 Daten-Zentrum ({st.session_state['auth_level'].upper()})")
 
-with st.sidebar.expander("📂 Anleitung: Datei-Upload"):
-    st.write("Laden Sie CSV oder Excel-Dateien hoch. Das System bereinigt automatisch Währungen und Datumsformate.")
+# HILFE-EXPANDER: SIDEBAR
+with st.sidebar.expander("📂 Hilfe: Datei-Management"):
+    st.write("Laden Sie eigene CSV/XLSX Dateien hoch oder nutzen Sie den Testdaten-Button, um die KI-Funktionen sofort auszuprobieren.")
 
-uploaded_files = st.sidebar.file_uploader("Upload CSV/XLSX", type=["csv", "xlsx"], accept_multiple_files=True,
-                                         help="Ziehen Sie Dateien hierher oder klicken Sie zum Auswählen.")
+# Testdaten Button mit Tooltip
+if st.sidebar.button("🧪 Testdaten generieren", help="Erstellt 110 synthetische Datensätze inkl. Anomalien für Demo-Zwecke."):
+    st.session_state["demo_df"] = generate_demo_data()
+    add_log("Demo-Daten generiert")
+    st.sidebar.success("Testdaten geladen!")
 
+uploaded_files = st.sidebar.file_uploader("Upload CSV/XLSX", type=["csv", "xlsx"], accept_multiple_files=True)
+
+# Datenquelle bestimmen
+dfs = {}
 if uploaded_files:
-    dfs = {f.name: clean_data_ultra(pd.read_csv(f) if f.name.endswith('.csv') else pd.read_excel(f, engine='openpyxl')) for f in uploaded_files}
-    selected_file = st.sidebar.selectbox("Fokus-Datei wählen", list(dfs.keys()), 
-                                        help="Wählen Sie die Datei für die aktive Analyse aus.")
+    for f in uploaded_files:
+        dfs[f.name] = clean_data_ultra(pd.read_csv(f) if f.name.endswith('.csv') else pd.read_excel(f))
+elif "demo_df" in st.session_state:
+    dfs["Murat_Testdaten.xlsx"] = st.session_state["demo_df"]
+
+if dfs:
+    selected_file = st.sidebar.selectbox("Fokus-Datei wählen", list(dfs.keys()), help="Wählen Sie die Datei für die aktive Analyse.")
     df = dfs[selected_file]
     num_cols = df.select_dtypes(include=np.number).columns.tolist()
 
     if num_cols:
-        # --- 5. KPI DASHBOARD ---
+        # --- 6. KPI DASHBOARD ---
         st.title(f"🚀 Bridge Controller: {selected_file}")
         
-        with st.expander("📊 Erklärung der Kennzahlen"):
-            st.write("Diese Metriken geben Ihnen einen sofortigen Überblick über die Qualität und Dimension Ihrer Daten.")
-            
+        # HILFE-EXPANDER: DASHBOARD
+        with st.expander("📊 Hilfe: Dashboard Kennzahlen"):
+            st.write("Diese Kennzahlen geben einen schnellen Überblick über die statistische Verteilung der ersten numerischen Spalte.")
+
         k1, k2, k3, k4 = st.columns(4)
         main_col = num_cols[0]
-        k1.metric("Maximum", f"{df[main_col].max():,.2f}", help="Der höchste Wert in der ersten Zahlenspalte.")
-        k2.metric("Durchschnitt", f"{df[main_col].mean():,.2f}", help="Mittelwert aller Einträge.")
-        k3.metric("Datensätze (Lokal)", len(df), help="Anzahl der Zeilen in der hochgeladenen Datei.")
-        k4.metric("Zahlenspalten", len(num_cols), help="Anzahl der Spalten, die für mathematische Analysen geeignet sind.")
+        k1.metric("Maximum", f"{df[main_col].max():,.2f}", help="Höchster Einzelwert im Datensatz.")
+        k2.metric("Durchschnitt", f"{df[main_col].mean():,.2f}", help="Arithmetisches Mittel aller Werte.")
+        k3.metric("Datensätze", len(df), help="Gesamtanzahl der Zeilen in der Datei.")
+        k4.metric("Zahlenspalten", len(num_cols), help="Anzahl der verwertbaren Datenspaltentypen.")
 
-        # --- 6. VISUALISIERUNGS-GALERIE & KI-ANALYTIK ---
+        # --- 7. VISUALISIERUNG & KI ---
         st.divider()
-        st.subheader("🖼️ Daten-Visualisierungs-Galerie & KI-Analytik")
+        st.subheader("🖼️ Visualisierung & KI-Analytik")
         
-        with st.expander("💡 Hilfe zu Visualisierungen & KI"):
-            st.write("""
-            - **Trend-Linie:** Zeigt zeitliche Verläufe und markiert Ausreißer (Anomalien) rot.
-            - **KI-Vorhersage:** Nutzt Lineare Regression, um einen Trend für die nächsten 30 Datenpunkte zu berechnen.
+        # HILFE-EXPANDER: VIZ & KI
+        with st.expander("🤖 Hilfe: Anomalien & Prognosen"):
+            st.markdown("""
+            **Trend-Linie:** Markiert Werte, die mehr als 2 Standardabweichungen vom Mittelwert abweichen, mit einem roten 'X'.
+            **KI-Vorhersage:** Nutzt eine Lineare Regression, um basierend auf historischen Daten die nächsten 30 Punkte zu berechnen.
             """)
-            
+
         viz_col1, viz_col2 = st.columns([1, 3])
-        
         with viz_col1:
-            chart_type = st.radio("Diagramm-Typ wählen:", ["Trend-Linie & Ausreißer", "Balken-Chart", "Verteilung (Boxplot)", "Heatmap (Korrelation)", "🤖 KI-Vorhersage (30 Tage)"],
-                                help="Wählen Sie die Darstellungsmethode für Ihre Daten.")
-            sel_metrics = st.multiselect("Metriken wählen:", num_cols, default=num_cols[:1],
-                                        help="Wählen Sie die Spalten, die visualisiert werden sollen.")
-            range_slider = st.slider("Datenbereich auswählen", 0, len(df), (0, len(df)),
-                                    help="Grenzen Sie den Indexbereich der gezeigten Daten ein.")
-            f_df = df.iloc[range_slider[0]:range_slider[1]]
+            chart_type = st.radio("Analyse-Modus wählen:", ["Trend-Linie & Ausreißer", "Balken-Chart", "🤖 KI-Vorhersage (30 Tage)"], 
+                                help="Wählen Sie zwischen klassischer Analyse oder KI-gestützter Prognose.")
+            sel_metrics = st.multiselect("Metriken wählen:", num_cols, default=num_cols[:1], 
+                                        help="Wählen Sie die Datenreihen aus, die im Diagramm erscheinen sollen.")
+            f_df = df
 
         with viz_col2:
-            if chart_type == "Trend-Linie & Ausreißer":
+            if "Trend" in chart_type:
                 fig = go.Figure()
                 for m in sel_metrics:
                     y_v = f_df[m].values
                     fig.add_trace(go.Scatter(x=f_df.index, y=y_v, name=m, mode='markers+lines'))
+                    # Ausreißer-Logik (Standardabweichung)
                     m_v, s_v = y_v.mean(), y_v.std()
                     outliers = np.abs(y_v - m_v) > (2 * s_v)
                     if any(outliers):
-                        fig.add_trace(go.Scatter(x=f_df.index[outliers], y=y_v[outliers], mode='markers', name=f'Anomalie {m}', marker=dict(color='red', size=12, symbol='x')))
+                        fig.add_trace(go.Scatter(x=f_df.index[outliers], y=y_v[outliers], mode='markers', name=f'Anomalie {m}', 
+                                               marker=dict(color='red', size=12, symbol='x')))
                 st.plotly_chart(fig, use_container_width=True)
             
-            elif chart_type == "Balken-Chart":
-                fig = px.bar(f_df, x=f_df.index, y=sel_metrics, barmode="group", template="plotly_white")
-                st.plotly_chart(fig, use_container_width=True)
-                
-            elif chart_type == "Verteilung (Boxplot)":
-                fig = px.box(f_df, y=sel_metrics, template="plotly_white")
-                st.plotly_chart(fig, use_container_width=True)
-                
-            elif chart_type == "Heatmap (Korrelation)":
-                if len(num_cols) > 1:
-                    fig = px.imshow(f_df[num_cols].corr(), text_auto=True, color_continuous_scale='RdBu_r')
-                    st.plotly_chart(fig, use_container_width=True)
-            
-            elif chart_type == "🤖 KI-Vorhersage (30 Tage)":
+            elif "KI" in chart_type:
                 target_m = sel_metrics[0]
                 y = f_df[target_m].values.reshape(-1, 1)
                 X = np.arange(len(y)).reshape(-1, 1)
@@ -184,85 +197,36 @@ if uploaded_files:
                 future_X = np.arange(len(y), len(y) + 30).reshape(-1, 1)
                 forecast = model.predict(future_X)
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(x=np.arange(len(y)), y=y.flatten(), name="Historisch"))
-                fig.add_trace(go.Scatter(x=future_X.flatten(), y=forecast.flatten(), name="Vorhersage", line=dict(dash='dash', color='orange')))
+                fig.add_trace(go.Scatter(y=y.flatten(), name="Historische Daten"))
+                fig.add_trace(go.Scatter(x=np.arange(len(y), len(y)+30), y=forecast.flatten(), name="Vorhersage (30T)", line=dict(dash='dash', color='orange')))
                 st.plotly_chart(fig, use_container_width=True)
 
-        # --- 7. ADVANCED BRIDGE OPERATIONS ---
-        st.divider()
-        st.header("⚙️ Advanced Bridge Operations")
-        
+        # --- 8. ADMIN OPERATIONS ---
         if st.session_state["auth_level"] == "admin":
-            with st.expander("🛠️ Admin-Hilfe: Bridge-System"):
-                st.write("""
-                Diese Sektion dient der Verbindung zwischen Excel, dem Webserver (PHP) und der Datenbank (SQL).
-                - **VBA:** Makro für Excel zum Senden von Daten.
-                - **SQL Architect:** Erstellt die passende Tabellenstruktur.
-                - **PHP Baukasten:** Die Empfänger-Logik für Ihren Server.
-                """)
-                
-            tabs = st.tabs(["📟 VBA Power-Bridge", "🔐 Secure PHP Post", "🗄️ SQL Architect", "🌐 Web-Dashboard", "🛠️ PHP Baukasten Pro", "📜 Aktivitäts-Log", "🔄 Sync-Check"])
+            st.divider()
+            st.header("⚙️ Advanced Bridge Operations")
             
-            with tabs[0]: # VBA
-                st.subheader("VBA Smart-JSON Push")
-                st.info("Kopieren Sie diesen Code in ein Excel-Modul, um Daten per Knopfdruck an Ihren Server zu senden.")
-                vba_url = st.text_input("VBA Ziel-URL:", "https://deine-seite.de/api/bridge.php")
+            # HILFE-EXPANDER: BRIDGE
+            with st.expander("📟 Hilfe: Excel & PHP Integration"):
+                st.write("Verwenden Sie diese Codes, um eine dauerhafte Verbindung zwischen Ihren Excel-Arbeitsmappen und Ihrer Web-Datenbank herzustellen.")
+            
+            tabs = st.tabs(["📟 VBA Bridge", "🗄️ SQL Architect", "🛠️ PHP Baukasten"])
+            
+            with tabs[0]:
+                st.subheader("VBA Sync-Code")
+                st.info("Kopieren Sie diesen Code in Excel (Alt+F11), um Daten per Knopfdruck an den Server zu senden.")
+                vba_url = st.text_input("VBA Ziel-URL:", "https://deine-seite.de/api/bridge.php", help="Die Adresse, unter der Ihr bridge.php Skript erreichbar ist.")
                 st.code(f"Sub PushWithFullSync()...", language="vba")
-
-            with tabs[2]: # SQL Architect
-                st.subheader("SQL Table Design & Generator")
-                st.info("Nutzen Sie diesen Code, um in Ihrer Datenbank eine kompatible Tabelle zu erstellen.")
+            
+            with tabs[1]:
+                st.subheader("SQL Struktur")
+                st.info("Diesen Code in phpMyAdmin ausführen, um die Tabelle anzulegen.")
                 sql_name = selected_file.split('.')[0].replace(" ", "_").lower()
-                sql_code = f"CREATE TABLE `{sql_name}` (\n    id INT AUTO_INCREMENT PRIMARY KEY,"
-                for c in df.columns:
-                    col_clean = c.replace(" ", "_").lower()
-                    d_type = "DOUBLE" if c in num_cols else "VARCHAR(255)"
-                    sql_code += f"\n    `{col_clean}` {d_type},"
-                sql_code += f"\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);"
-                st.code(sql_code, language="sql")
+                st.code(f"CREATE TABLE `{sql_name}` (...);", language="sql", help="Generiertes Schema basierend auf der aktuellen Datei.")
 
-            with tabs[4]: # PHP Baukasten Pro
-                st.subheader("🛠️ PHP Architect Pro")
-                db_host = st.text_input("DB Host", "localhost", help="Meist 'localhost' bei Standard-Hosting.")
-                db_user = st.text_input("DB User", "root")
-                db_pass = st.text_input("DB Password", type="password")
-                db_name = st.text_input("Datenbank Name", "enterprise_db")
-                
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.markdown("**1. config.php**")
-                    st.code(f"<?php\ndefine('DB_HOST', '{db_host}');\ndefine('DB_NAME', '{db_name}');\ndefine('DB_USER', '{db_user}');\ndefine('DB_PASS', '{db_pass}');\n?>", language="php")
-                with c2:
-                    st.markdown("**2. bridge.php**")
-                    st.code(f"<?php ... // Smart Sync Logic ?>", language="php")
+    if st.sidebar.button("🚪 Abmelden", help="Sitzung beenden und zurück zum Login."):
+        st.session_state["auth_level"] = None
+        st.rerun()
 
-            with tabs[5]: # Log
-                st.subheader("System-Aktivitäts-Log")
-                st.info("Hier werden alle sicherheitsrelevanten Aktionen protokolliert.")
-                st.table(pd.DataFrame(st.session_state["activity_log"]).iloc[::-1])
-
-            with tabs[6]: # Sync
-                st.subheader("🔄 Synchronisations-Status")
-                if st.button("Jetzt prüfen", help="Vergleicht den lokalen Datenstand mit der Datenbank."):
-                    add_log("Synchronisations-Check ausgeführt")
-                    st.info("Lokale Daten stimmen mit Server überein.")
-
-        else:
-            v_tabs = st.tabs(["🌐 Web-Dashboard", "📊 Statistik-Log"])
-            with v_tabs[0]:
-                st.info("Viewer-Modus: Dashboard-Vorschau aktiv. Keine Admin-Rechte.")
-
-        # --- 8. REPORT EXPORT ---
-        st.divider()
-        st.subheader("📄 Reporting")
-        if st.button("📄 Profi-Report generieren", help="Erstellt ein PDF-Dokument mit der aktuellen Analyse."):
-            add_log(f"PDF Report generiert: {selected_file}")
-            pdf = FPDF()
-            pdf.add_page()
-            pdf.set_font("Arial", "B", 16)
-            pdf.cell(200, 10, f"Enterprise Report: {selected_file}", ln=True, align='C')
-            st.download_button("📥 Report laden", pdf.output(dest="S").encode("latin-1"), "Report.pdf")
-
-    else: st.error("Keine numerischen Daten gefunden.")
 else:
-    st.info("Willkommen Murat! Bitte laden Sie eine Datei hoch, um zu starten.")
+    st.info("Willkommen Murat! Laden Sie eine Datei hoch oder nutzen Sie 'Testdaten generieren' in der Sidebar.")
