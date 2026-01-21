@@ -8,7 +8,7 @@ from fpdf import FPDF
 import io
 
 # --- 1. SETUP & ENTERPRISE DESIGN ---
-st.set_page_config(page_title="DataPro AI | Ultimate Bridge Suite", page_icon="💎", layout="wide")
+st.set_page_config(page_title="DataPro AI | Excel-PHP Bridge Pro", page_icon="💎", layout="wide")
 
 st.markdown("""
     <style>
@@ -41,7 +41,7 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- 2. LOGIK-KERN (Ultra-Bereinigung & Währungen) ---
+# --- 2. LOGIK-KERN (Bereinigung) ---
 def clean_data_ultra(df):
     df = df.dropna(how='all').dropna(axis=1, how='all')
     for col in df.columns:
@@ -58,7 +58,7 @@ def clean_data_ultra(df):
 # --- 3. DATEI-IMPORT (Multi-Format Support) ---
 st.sidebar.image("https://cdn-icons-png.flaticon.com/512/2103/2103633.png", width=80)
 st.sidebar.header("📁 Daten-Zentrum")
-uploaded_files = st.sidebar.file_uploader("CSV oder Excel hochladen", type=["csv", "xlsx"], accept_multiple_files=True)
+uploaded_files = st.sidebar.file_uploader("Upload CSV/XLSX", type=["csv", "xlsx"], accept_multiple_files=True)
 
 if uploaded_files:
     dfs = {f.name: clean_data_ultra(pd.read_csv(f) if f.name.endswith('.csv') else pd.read_excel(f, engine='openpyxl')) for f in uploaded_files}
@@ -78,50 +78,47 @@ if uploaded_files:
 
         # --- 5. VISUALISIERUNG & KORRELATION ---
         st.divider()
-        col_left, col_right = st.columns([2, 1])
-        
-        with col_left:
+        col_l, col_r = st.columns([2, 1])
+        with col_l:
             st.subheader("📊 Trend-Analyse & Outlier-Detection")
-            range_slider = st.sidebar.slider("Datenbereich (Zeilen)", 0, len(df), (0, len(df)))
+            range_slider = st.sidebar.slider("Datenbereich", 0, len(df), (0, len(df)))
             f_df = df.iloc[range_slider[0]:range_slider[1]]
             sel_metrics = st.multiselect("Metriken vergleichen:", num_cols, default=num_cols[:1])
             fig = go.Figure()
             for m in sel_metrics:
-                y_vals = f_df[m].values
-                fig.add_trace(go.Scatter(x=f_df.index, y=y_vals, name=m, mode='lines+markers'))
-                mean_v, std_v = y_vals.mean(), y_vals.std()
-                outlier_mask = np.abs(y_vals - mean_v) > (2 * std_v)
-                if any(outlier_mask):
-                    fig.add_trace(go.Scatter(x=f_df.index[outlier_mask], y=y_vals[outlier_mask], mode='markers', name=f'Outlier {m}', marker=dict(color='red', size=12, symbol='x')))
+                y_v = f_df[m].values
+                fig.add_trace(go.Scatter(x=f_df.index, y=y_v, name=m, mode='lines+markers'))
+                m_v, s_v = y_v.mean(), y_v.std()
+                out_mask = np.abs(y_v - m_v) > (2 * s_v)
+                if any(out_mask):
+                    fig.add_trace(go.Scatter(x=f_df.index[out_mask], y=y_v[out_mask], mode='markers', name=f'Outlier {m}', marker=dict(color='red', size=12, symbol='x')))
             fig.update_layout(hovermode="x unified", template="plotly_white")
             st.plotly_chart(fig, use_container_width=True)
-
-        with col_right:
+        
+        with col_r:
             st.subheader("🔗 Korrelation")
             if len(num_cols) > 1:
-                corr = f_df[num_cols].corr()
-                fig_corr = px.imshow(corr, text_auto=True, color_continuous_scale='RdBu_r')
-                st.plotly_chart(fig_corr, use_container_width=True)
+                st.plotly_chart(px.imshow(f_df[num_cols].corr(), text_auto=True), use_container_width=True)
             else: st.info("Mehr Spalten nötig.")
 
         # --- 6. SMART QUERY KI ---
         st.divider()
         st.subheader("💬 Smart Query KI")
-        user_query = st.text_input("KI-Analyse (z.B. 'Was ist das Maximum?')")
+        user_query = st.text_input("KI-Analyse (z.B. 'Max von " + main_col + "')")
         ki_out = ""
         if user_query:
-            matched_col = next((c for c in num_cols if c.lower() in user_query.lower()), num_cols[0])
+            matched_col = next((c for c in num_cols if c.lower() in user_query.lower()), main_col)
             ki_out = f"Analyse für '{matched_col}': Max {df[matched_col].max():,.2f}, Schnitt {df[matched_col].mean():,.2f}."
             st.info(f"🤖 {ki_out}")
 
-        # --- 7. ADVANCED AUTOMATION BRIDGE ---
+        # --- 7. ADVANCED BRIDGE OPERATIONS ---
         st.divider()
         st.header("⚙️ Advanced Bridge Operations")
-        t_vba, t_php, t_sql, t_web, t_build = st.tabs(["📟 VBA Pivot-Makro", "🔐 Secure PHP Post", "🗄️ SQL Architect", "🌐 Web-Dashboard", "🛠️ PHP Baukasten Pro"])
+        t_vba, t_php, t_sql, t_web, t_build = st.tabs(["📟 VBA Pivot", "🔐 Secure PHP Post", "🗄️ SQL Architect", "🌐 Web-Dashboard", "🛠️ PHP Baukasten Pro"])
 
         with t_vba:
             st.subheader("Excel Pivot-Makro Generator")
-            vba_code = f"""Sub CreatePivotTable()\n    ' Generiert für {selected_file}\n    Dim pc As PivotCache: Dim pt As PivotTable\n    Set pc = ActiveWorkbook.PivotCaches.Create(SourceType:=xlDatabase, SourceData:=ActiveSheet.UsedRange)\n    Set pt = pc.CreatePivotTable(TableDestination:=Sheets.Add.Range("A3"), TableName:="DataProPivot")\n    With pt.PivotFields("{num_cols[0]}")\n        .Orientation = xlDataField: .Function = xlSum: .NumberFormat = "#.##0,00"\n    End With\nEnd Sub"""
+            vba_code = f"""Sub CreatePivotTable()\n    ' Generiert für {selected_file}\n    Dim pc As PivotCache: Dim pt As PivotTable\n    Set pc = ActiveWorkbook.PivotCaches.Create(SourceType:=xlDatabase, SourceData:=ActiveSheet.UsedRange)\n    Set pt = pc.CreatePivotTable(TableDestination:=Sheets.Add.Range("A3"), TableName:="DataProPivot")\n    With pt.PivotFields("{main_col}")\n        .Orientation = xlDataField: .Function = xlSum: .NumberFormat = "#.##0,00"\n    End With\nEnd Sub"""
             st.code(vba_code, language="vba")
 
         with t_php:
@@ -132,7 +129,7 @@ if uploaded_files:
                 try:
                     headers = {"Authorization": f"Bearer {api_token}"}
                     res = requests.post(url, json={"data": f_df.to_json(orient="records"), "file": selected_file}, headers=headers)
-                    st.success(f"Status {res.status_code}: {res.text}")
+                    st.success(f"Server-Status {res.status_code}: {res.text}")
                 except Exception as e: st.error(f"Fehler: {e}")
 
         with t_sql:
@@ -145,22 +142,26 @@ if uploaded_files:
             st.code(sql.rstrip(',\n') + "\n);", language="sql")
 
         with t_web:
-            st.subheader("PHP Web-Interface & Realtime Chart")
+            st.subheader("PHP Realtime Chart Generator")
             sql_name_web = selected_file.split('.')[0].replace(' ', '_').lower()
-            st.write("Diese `chart.php` zeigt deine Daten als Echtzeit-Grafik an:")
+            # Lösung für NameError: Doppelte geschweifte Klammern {{ }} maskieren diese für Python
             chart_php = f"""<?php
 require 'db_connect.php';
-$stmt = $pdo->query("SELECT id, {num_cols[0]} FROM {sql_name_web} ORDER BY id DESC LIMIT 20");
+$stmt = $pdo->query("SELECT id, {main_col} FROM {sql_name_web} ORDER BY id DESC LIMIT 20");
 $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $labels = json_encode(array_column(array_reverse($data), 'id'));
-$values = json_encode(array_column(array_reverse($data), '{num_cols[0]}'));
+$values = json_encode(array_column(array_reverse($data), '{main_col}'));
 ?>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <canvas id="myChart"></canvas>
 <script>
 new Chart(document.getElementById('myChart'), {{
     type: 'line',
-    data: {{ labels: {labels}, datasets: [{{ label: '{num_cols[0]}', data: {values}, borderColor: 'blue' }}] }}
+    data: {{ 
+        labels: <?php echo $labels; ?>, 
+        datasets: [{{ label: '{main_col}', data: <?php echo $values; ?>, borderColor: 'blue', fill: false }}] 
+    }},
+    options: {{ responsive: true }}
 }});
 </script>"""
             st.code(chart_php, language="php")
@@ -169,34 +170,31 @@ new Chart(document.getElementById('myChart'), {{
         with t_build:
             st.subheader("PHP Architect (Vollständiges Backend)")
             db_name = st.text_input("Datenbank Name", "analytics_db")
-            sql_name_clean = selected_file.split('.')[0].replace(" ", "_").lower()
-            
             db_php = f"<?php\n$pdo = new PDO('mysql:host=localhost;dbname={db_name}', 'root', '');\n?>"
             st.code(db_php, language="php")
             
             upload_php = f"""<?php
 require 'db_connect.php';
 $secret = "{api_token}";
-if ($_SERVER['HTTP_AUTHORIZATION'] !== "Bearer " . $secret) {{ http_response_code(403); die(); }}
+$headers = getallheaders();
+if ($headers['Authorization'] !== "Bearer " . $secret) {{ http_response_code(403); die(); }}
 $input = json_decode(file_get_contents('php://input'), true);
 $data = json_decode($input['data'], true);
 foreach ($data as $row) {{
     $cols = implode(", ", array_keys($row));
     $pts = ":" . implode(", :", array_keys($row));
-    $pdo->prepare("INSERT INTO {sql_name_clean} ($cols) VALUES ($pts)")->execute($row);
+    $pdo->prepare("INSERT INTO {sql_name_web} ($cols) VALUES ($pts)")->execute($row);
 }}
-echo "Daten gespeichert!"; ?>"""
+echo "Gespeichert!"; ?>"""
             st.code(upload_php, language="php")
-            st.download_button("Download upload.php", upload_php, "upload.php")
 
         # --- 8. REPORT EXPORT ---
         st.divider()
         if st.button("📄 Profi-Report generieren"):
             pdf = FPDF()
-            pdf.add_page()
-            pdf.set_font("Arial", "B", 16)
+            pdf.add_page(); pdf.set_font("Arial", "B", 16)
             pdf.cell(200, 10, "Enterprise Analysis Report", ln=True, align='C')
-            st.download_button("📥 Report herunterladen", pdf.output(dest="S").encode("latin-1"), "Report.pdf")
+            st.download_button("📥 Report laden", pdf.output(dest="S").encode("latin-1"), "Report.pdf")
 
     else: st.error("Keine numerischen Daten gefunden.")
 else: st.info("Willkommen Murat! Lade eine Datei hoch, um das Bridge-System zu starten.")
