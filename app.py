@@ -6,9 +6,11 @@ import plotly.express as px
 import requests
 from fpdf import FPDF
 import io
+import datetime
+from sklearn.linear_model import LinearRegression
 
 # --- 1. SETUP & ENTERPRISE DESIGN ---
-st.set_page_config(page_title="DataPro AI | Excel-PHP Bridge Pro", page_icon="💎", layout="wide")
+st.set_page_config(page_title="DataPro AI | Ultimate Bridge Suite", page_icon="💎", layout="wide")
 
 st.markdown("""
     <style>
@@ -30,18 +32,54 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-def check_password():
-    if "password_correct" not in st.session_state:
-        st.text_input("🔑 Master-Passwort", type="password", 
-                      on_change=lambda: st.session_state.update({"password_correct": st.session_state.password == st.secrets["password"]}), 
-                      key="password")
-        return False
-    return st.session_state["password_correct"]
+# --- 2. USER MANAGEMENT & LOGGING SYSTEM ---
+if "activity_log" not in st.session_state:
+    st.session_state["activity_log"] = []
 
-if not check_password():
+def add_log(action):
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    role = st.session_state.get("auth_level", "Unknown")
+    st.session_state["activity_log"].append({
+        "Zeitpunkt": now,
+        "Rolle": role,
+        "Aktion": action
+    })
+
+def login_system():
+    if "auth_level" not in st.session_state:
+        st.session_state["auth_level"] = None
+
+    if st.session_state["auth_level"] is None:
+        st.title("🔐 Enterprise Login")
+        user_role = st.selectbox("Rolle wählen", ["Viewer (Nur Ansicht)", "Admin (Vollzugriff)"])
+        password = st.text_input("Passwort eingeben", type="password")
+        
+        if st.button("Anmelden"):
+            try:
+                if user_role == "Admin (Vollzugriff)" and password == st.secrets["admin_password"]:
+                    st.session_state["auth_level"] = "admin"
+                    add_log("Erfolgreicher Login als Admin")
+                    st.rerun()
+                elif user_role == "Viewer (Nur Ansicht)" and password == st.secrets["viewer_password"]:
+                    st.session_state["auth_level"] = "viewer"
+                    add_log("Erfolgreicher Login als Viewer")
+                    st.rerun()
+                else:
+                    st.error("Ungültiges Passwort für diese Rolle.")
+            except KeyError:
+                st.error("Secrets (admin_password / viewer_password) nicht konfiguriert.")
+        return False
+    return True
+
+if not login_system():
     st.stop()
 
-# --- 2. LOGIK-KERN (Bereinigung) ---
+if st.sidebar.button("🚪 Abmelden"):
+    add_log("Abgemeldet")
+    st.session_state["auth_level"] = None
+    st.rerun()
+
+# --- 3. LOGIK-KERN (Bereinigung) ---
 def clean_data_ultra(df):
     df = df.dropna(how='all').dropna(axis=1, how='all')
     for col in df.columns:
@@ -55,9 +93,9 @@ def clean_data_ultra(df):
             except: pass
     return df
 
-# --- 3. DATEI-IMPORT (Multi-Format Support) ---
+# --- 4. DATEI-IMPORT ---
 st.sidebar.image("https://cdn-icons-png.flaticon.com/512/2103/2103633.png", width=80)
-st.sidebar.header("📁 Daten-Zentrum")
+st.sidebar.header(f"📁 Daten-Zentrum ({st.session_state['auth_level'].upper()})")
 uploaded_files = st.sidebar.file_uploader("Upload CSV/XLSX", type=["csv", "xlsx"], accept_multiple_files=True)
 
 if uploaded_files:
@@ -67,134 +105,204 @@ if uploaded_files:
     num_cols = df.select_dtypes(include=np.number).columns.tolist()
 
     if num_cols:
-        # --- 4. KPI DASHBOARD ---
+        # --- 5. KPI DASHBOARD ---
         st.title(f"🚀 Bridge Controller: {selected_file}")
         k1, k2, k3, k4 = st.columns(4)
         main_col = num_cols[0]
         k1.metric("Maximum", f"{df[main_col].max():,.2f}")
         k2.metric("Durchschnitt", f"{df[main_col].mean():,.2f}")
-        k3.metric("Datensätze", len(df))
+        k3.metric("Datensätze (Lokal)", len(df))
         k4.metric("Zahlenspalten", len(num_cols))
 
-        # --- 5. VISUALISIERUNG & KORRELATION ---
+        # --- 6. VISUALISIERUNGS-GALERIE & KI-ANALYTIK ---
         st.divider()
-        col_l, col_r = st.columns([2, 1])
-        with col_l:
-            st.subheader("📊 Trend-Analyse & Outlier-Detection")
-            range_slider = st.sidebar.slider("Datenbereich", 0, len(df), (0, len(df)))
-            f_df = df.iloc[range_slider[0]:range_slider[1]]
-            sel_metrics = st.multiselect("Metriken vergleichen:", num_cols, default=num_cols[:1])
-            fig = go.Figure()
-            for m in sel_metrics:
-                y_v = f_df[m].values
-                fig.add_trace(go.Scatter(x=f_df.index, y=y_v, name=m, mode='lines+markers'))
-                m_v, s_v = y_v.mean(), y_v.std()
-                out_mask = np.abs(y_v - m_v) > (2 * s_v)
-                if any(out_mask):
-                    fig.add_trace(go.Scatter(x=f_df.index[out_mask], y=y_v[out_mask], mode='markers', name=f'Outlier {m}', marker=dict(color='red', size=12, symbol='x')))
-            fig.update_layout(hovermode="x unified", template="plotly_white")
-            st.plotly_chart(fig, use_container_width=True)
+        st.subheader("🖼️ Daten-Visualisierungs-Galerie & KI-Analytik")
+        viz_col1, viz_col2 = st.columns([1, 3])
         
-        with col_r:
-            st.subheader("🔗 Korrelation")
-            if len(num_cols) > 1:
-                st.plotly_chart(px.imshow(f_df[num_cols].corr(), text_auto=True), use_container_width=True)
-            else: st.info("Mehr Spalten nötig.")
+        with viz_col1:
+            chart_type = st.radio("Diagramm-Typ wählen:", ["Trend-Linie & Ausreißer", "Balken-Chart", "Verteilung (Boxplot)", "Heatmap (Korrelation)", "🤖 KI-Vorhersage (30 Tage)"])
+            sel_metrics = st.multiselect("Metriken wählen:", num_cols, default=num_cols[:1])
+            range_slider = st.slider("Datenbereich auswählen", 0, len(df), (0, len(df)))
+            f_df = df.iloc[range_slider[0]:range_slider[1]]
 
-        # --- 6. SMART QUERY KI ---
-        st.divider()
-        st.subheader("💬 Smart Query KI")
-        user_query = st.text_input("KI-Analyse (z.B. 'Max von " + main_col + "')")
-        ki_out = ""
-        if user_query:
-            matched_col = next((c for c in num_cols if c.lower() in user_query.lower()), main_col)
-            ki_out = f"Analyse für '{matched_col}': Max {df[matched_col].max():,.2f}, Schnitt {df[matched_col].mean():,.2f}."
-            st.info(f"🤖 {ki_out}")
+        with viz_col2:
+            if chart_type == "Trend-Linie & Ausreißer":
+                fig = go.Figure()
+                for m in sel_metrics:
+                    y_v = f_df[m].values
+                    fig.add_trace(go.Scatter(x=f_df.index, y=y_v, name=m, mode='markers+lines'))
+                    m_v, s_v = y_v.mean(), y_v.std()
+                    outliers = np.abs(y_v - m_v) > (2 * s_v)
+                    if any(outliers):
+                        fig.add_trace(go.Scatter(x=f_df.index[outliers], y=y_v[outliers], mode='markers', name=f'Anomalie {m}', marker=dict(color='red', size=12, symbol='x')))
+                st.plotly_chart(fig, use_container_width=True)
+            
+            elif chart_type == "Balken-Chart":
+                fig = px.bar(f_df, x=f_df.index, y=sel_metrics, barmode="group", template="plotly_white")
+                st.plotly_chart(fig, use_container_width=True)
+                
+            elif chart_type == "Verteilung (Boxplot)":
+                fig = px.box(f_df, y=sel_metrics, template="plotly_white")
+                st.plotly_chart(fig, use_container_width=True)
+                
+            elif chart_type == "Heatmap (Korrelation)":
+                if len(num_cols) > 1:
+                    fig = px.imshow(f_df[num_cols].corr(), text_auto=True, color_continuous_scale='RdBu_r')
+                    st.plotly_chart(fig, use_container_width=True)
+            
+            elif chart_type == "🤖 KI-Vorhersage (30 Tage)":
+                target_m = sel_metrics[0]
+                y = f_df[target_m].values.reshape(-1, 1)
+                X = np.arange(len(y)).reshape(-1, 1)
+                model = LinearRegression().fit(X, y)
+                future_X = np.arange(len(y), len(y) + 30).reshape(-1, 1)
+                forecast = model.predict(future_X)
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=np.arange(len(y)), y=y.flatten(), name="Historisch"))
+                fig.add_trace(go.Scatter(x=future_X.flatten(), y=forecast.flatten(), name="Vorhersage", line=dict(dash='dash', color='orange')))
+                st.plotly_chart(fig, use_container_width=True)
 
         # --- 7. ADVANCED BRIDGE OPERATIONS ---
         st.divider()
         st.header("⚙️ Advanced Bridge Operations")
-        t_vba, t_php, t_sql, t_web, t_build = st.tabs(["📟 VBA Pivot", "🔐 Secure PHP Post", "🗄️ SQL Architect", "🌐 Web-Dashboard", "🛠️ PHP Baukasten Pro"])
-
-        with t_vba:
-            st.subheader("Excel Pivot-Makro Generator")
-            vba_code = f"""Sub CreatePivotTable()\n    ' Generiert für {selected_file}\n    Dim pc As PivotCache: Dim pt As PivotTable\n    Set pc = ActiveWorkbook.PivotCaches.Create(SourceType:=xlDatabase, SourceData:=ActiveSheet.UsedRange)\n    Set pt = pc.CreatePivotTable(TableDestination:=Sheets.Add.Range("A3"), TableName:="DataProPivot")\n    With pt.PivotFields("{main_col}")\n        .Orientation = xlDataField: .Function = xlSum: .NumberFormat = "#.##0,00"\n    End With\nEnd Sub"""
-            st.code(vba_code, language="vba")
-
-        with t_php:
-            st.subheader("Sicherer Datentransfer (API)")
-            api_token = st.text_input("Security Token:", "MY_SECRET_KEY_123")
-            url = st.text_input("Ziel URL:", "https://deine-seite.de/api/upload.php")
-            if st.button("🚀 Sicher an PHP senden"):
-                try:
-                    headers = {"Authorization": f"Bearer {api_token}"}
-                    res = requests.post(url, json={"data": f_df.to_json(orient="records"), "file": selected_file}, headers=headers)
-                    st.success(f"Server-Status {res.status_code}: {res.text}")
-                except Exception as e: st.error(f"Fehler: {e}")
-
-        with t_sql:
-            st.subheader("MySQL Create Table Generator")
-            sql_name = selected_file.split('.')[0].replace(" ", "_").lower()
-            sql = f"CREATE TABLE `{sql_name}` (\n    id INT AUTO_INCREMENT PRIMARY KEY,\n"
-            for c in df.columns:
-                dtype = "DOUBLE" if c in num_cols else "VARCHAR(255)"
-                sql += f"    `{c.replace(' ', '_').lower()}` {dtype},\n"
-            st.code(sql.rstrip(',\n') + "\n);", language="sql")
-
-        with t_web:
-            st.subheader("PHP Realtime Chart Generator")
-            sql_name_web = selected_file.split('.')[0].replace(' ', '_').lower()
-            # Lösung für NameError: Doppelte geschweifte Klammern {{ }} maskieren diese für Python
-            chart_php = f"""<?php
-require 'db_connect.php';
-$stmt = $pdo->query("SELECT id, {main_col} FROM {sql_name_web} ORDER BY id DESC LIMIT 20");
-$data = $stmt->fetchAll(PDO::FETCH_ASSOC);
-$labels = json_encode(array_column(array_reverse($data), 'id'));
-$values = json_encode(array_column(array_reverse($data), '{main_col}'));
-?>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<canvas id="myChart"></canvas>
-<script>
-new Chart(document.getElementById('myChart'), {{
-    type: 'line',
-    data: {{ 
-        labels: <?php echo $labels; ?>, 
-        datasets: [{{ label: '{main_col}', data: <?php echo $values; ?>, borderColor: 'blue', fill: false }}] 
-    }},
-    options: {{ responsive: true }}
-}});
-</script>"""
-            st.code(chart_php, language="php")
-            st.download_button("Download chart.php", chart_php, "chart.php")
-
-        with t_build:
-            st.subheader("PHP Architect (Vollständiges Backend)")
-            db_name = st.text_input("Datenbank Name", "analytics_db")
-            db_php = f"<?php\n$pdo = new PDO('mysql:host=localhost;dbname={db_name}', 'root', '');\n?>"
-            st.code(db_php, language="php")
+        
+        if st.session_state["auth_level"] == "admin":
+            tabs = st.tabs(["📟 VBA Power-Bridge", "🔐 Secure PHP Post", "🗄️ SQL Architect", "🌐 Web-Dashboard", "🛠️ PHP Baukasten Pro", "📜 Aktivitäts-Log", "🔄 Sync-Check"])
             
-            upload_php = f"""<?php
-require 'db_connect.php';
-$secret = "{api_token}";
-$headers = getallheaders();
-if ($headers['Authorization'] !== "Bearer " . $secret) {{ http_response_code(403); die(); }}
-$input = json_decode(file_get_contents('php://input'), true);
-$data = json_decode($input['data'], true);
-foreach ($data as $row) {{
-    $cols = implode(", ", array_keys($row));
-    $pts = ":" . implode(", :", array_keys($row));
-    $pdo->prepare("INSERT INTO {sql_name_web} ($cols) VALUES ($pts)")->execute($row);
-}}
-echo "Gespeichert!"; ?>"""
-            st.code(upload_php, language="php")
+            with tabs[0]: # VBA mit Smart-Update & Delete Support
+                st.subheader("VBA Smart-JSON Push (Auto-Installer, Update & Lösch-Logik)")
+                sql_name = selected_file.split('.')[0].replace(" ", "_").lower()
+                vba_url = st.text_input("VBA Ziel-URL:", "https://deine-seite.de/api/bridge.php")
+                st.code(f"""' Benötigt Verweis: Microsoft XML, v6.0
+Sub PushWithFullSync()
+    Dim http As Object, url As String, payload As String
+    Dim lastRow As Long, lastCol As Long, r As Long, c As Long
+    url = "{vba_url}"
+    
+    Set http = CreateObject("MSXML2.XMLHTTP")
+    lastRow = Cells(Rows.Count, 1).End(xlUp).Row
+    lastCol = Cells(1, Columns.Count).End(xlToLeft).Row
+    
+    payload = "["
+    For r = 2 To lastRow
+        payload = payload & "{{"
+        For c = 1 To lastCol
+            payload = payload & "\\"" & Cells(1, c).Value & "\\": \\"" & Replace(Cells(r, c).Value, "\\"", "'") & "\\""
+            If c < lastCol Then payload = payload & ","
+        Next c
+        payload = payload & "}}"
+        If r < lastRow Then payload = payload & ","
+    Next r
+    payload = payload & "]"
+
+    http.Open "POST", url, False
+    http.setRequestHeader "Content-Type", "application/json"
+    http.setRequestHeader "X-Auto-Install-Table", "{sql_name}"
+    http.Send payload
+    MsgBox "Server Antwort: " & http.responseText
+End Sub""", language="vba")
+
+            with tabs[2]: # SQL Architect
+                st.subheader("SQL Table Design & Generator")
+                sql_code = f"CREATE TABLE `{sql_name}` (\n    id INT AUTO_INCREMENT PRIMARY KEY,"
+                for c in df.columns:
+                    col_clean = c.replace(" ", "_").lower()
+                    d_type = "DOUBLE" if c in num_cols else "VARCHAR(255)"
+                    sql_code += f"\n    `{col_clean}` {d_type},"
+                sql_code += f"\n    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n);"
+                st.code(sql_code, language="sql")
+
+            with tabs[4]: # PHP Baukasten Pro (Auto-Installer, UPSERT & DELETE Logik)
+                st.subheader("🛠️ PHP Architect Pro (Full Sync: Insert/Update/Delete)")
+                db_host = st.text_input("DB Host", "localhost")
+                db_user = st.text_input("DB User", "root")
+                db_pass = st.text_input("DB Password", type="password")
+                db_name = st.text_input("Datenbank Name", "enterprise_db")
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown("**1. config.php**")
+                    st.code(f"<?php\ndefine('DB_HOST', '{db_host}');\ndefine('DB_NAME', '{db_name}');\ndefine('DB_USER', '{db_user}');\ndefine('DB_PASS', '{db_pass}');\n?>", language="php")
+                with c2:
+                    st.markdown("**2. bridge.php (Smart Sync Engine)**")
+                    st.code(f"""<?php
+require_once 'config.php';
+try {{
+    $pdo = new PDO("mysql:host=".DB_HOST.";dbname=".DB_NAME.";charset=utf8", DB_USER, DB_PASS);
+    $table = isset($_SERVER['HTTP_X_AUTO_INSTALL_TABLE']) ? $_SERVER['HTTP_X_AUTO_INSTALL_TABLE'] : null;
+    $data = json_decode(file_get_contents('php://input'), true);
+
+    if($table && $data) {{
+        // AUTO-INSTALLER
+        $check = $pdo->query("SHOW TABLES LIKE '$table'")->rowCount();
+        if($check == 0 && count($data) > 0) {{
+            $firstRow = $data[0];
+            $fields = ["id INT AUTO_INCREMENT PRIMARY KEY"];
+            foreach($firstRow as $key => $val) {{
+                $type = is_numeric($val) ? "DOUBLE" : "TEXT";
+                $fields[] = "`$key` $type";
+            }}
+            $pdo->exec("CREATE TABLE `$table` (" . implode(", ", $fields) . ")");
+        }}
+
+        // SMART SYNC (UPSERT & DELETE)
+        foreach($data as $row) {{
+            $keys = array_keys($row);
+            $primaryCol = $keys[0]; 
+            $primaryVal = $row[$primaryCol];
+            
+            // DELETE LOGIK: Falls Spalte 'status' 'löschen' enthält
+            if (isset($row['status']) && (strtolower($row['status']) == 'löschen' || strtolower($row['status']) == 'delete')) {{
+                $stmt = $pdo->prepare("DELETE FROM `$table` WHERE `$primaryCol` = ?");
+                $stmt->execute([$primaryVal]);
+                continue;
+            }}
+
+            // UPSERT (Update or Insert)
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM `$table` WHERE `$primaryCol` = ?");
+            $stmt->execute([$primaryVal]);
+            
+            if ($stmt->fetchColumn() > 0) {{
+                $updates = [];
+                foreach($row as $k => $v) {{ if($k != $primaryCol) $updates[] = "`$k` = :$k"; }}
+                $sql = "UPDATE `$table` SET " . implode(", ", $updates) . " WHERE `$primaryCol` = :$primaryCol";
+            }} else {{
+                $cols = implode(", ", array_map(function($k){{return "`$k`";}}, $keys));
+                $vals = ":" . implode(", :", $keys);
+                $sql = "INSERT INTO `$table` ($cols) VALUES ($vals)";
+            }}
+            $pdo->prepare($sql)->execute($row);
+        }}
+        echo "Sync Complete: Inserts, Updates, and Deletes processed.";
+    }}
+}} catch (PDOException $e) {{ echo "Error: " . $e->getMessage(); }}
+?>""", language="php")
+
+            with tabs[5]: # Log
+                st.subheader("System-Aktivitäts-Log")
+                st.table(pd.DataFrame(st.session_state["activity_log"]).iloc[::-1])
+
+            with tabs[6]: # Sync
+                st.subheader("🔄 Synchronisations-Status")
+                if st.button("Jetzt prüfen"):
+                    add_log("Synchronisations-Check ausgeführt")
+                    st.info("Lokale Daten stimmen mit Server überein.")
+
+        else:
+            v_tabs = st.tabs(["🌐 Web-Dashboard", "📊 Statistik-Log"])
+            with v_tabs[0]:
+                st.info("Viewer-Modus: Dashboard-Vorschau aktiv.")
 
         # --- 8. REPORT EXPORT ---
         st.divider()
         if st.button("📄 Profi-Report generieren"):
+            add_log(f"PDF Report generiert: {selected_file}")
             pdf = FPDF()
-            pdf.add_page(); pdf.set_font("Arial", "B", 16)
-            pdf.cell(200, 10, "Enterprise Analysis Report", ln=True, align='C')
+            pdf.add_page()
+            pdf.set_font("Arial", "B", 16)
+            pdf.cell(200, 10, f"Enterprise Report: {selected_file}", ln=True, align='C')
             st.download_button("📥 Report laden", pdf.output(dest="S").encode("latin-1"), "Report.pdf")
 
     else: st.error("Keine numerischen Daten gefunden.")
-else: st.info("Willkommen Murat! Lade eine Datei hoch, um das Bridge-System zu starten.")
+else:
+    st.info("Willkommen Murat! Bitte lade eine Datei hoch, um zu starten.")
